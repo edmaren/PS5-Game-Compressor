@@ -145,6 +145,11 @@ Created by Juma Sayeh.
 
 Tested by Osama Abualia.
 
+Built on and inspired by work from:
+
+- [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS)
+- [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus)
+
 Made with love in Palestine.
 
 ## Disclaimer
