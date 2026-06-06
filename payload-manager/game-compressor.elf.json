@@ -1,0 +1,14 @@
+{
+  "url": "",
+  "source": "",
+  "source_direct": "",
+  "last_update": "2026-06-07",
+  "version": "dev",
+  "downloaded_at": "2026-06-07T01:11:02+0300",
+  "install_source": "manual_upload",
+  "install_source_detail": "/data/pldmgr/payloads/game-compressor",
+  "name": "Game Compressor",
+  "filename": "game-compressor.elf",
+  "description": "Standalone game compressor for ShadowMountPlus titles with compress, uncompress, validate and repair, history, and move actions.",
+  "checksum": "ed5468944253265f654c9d49aa9096e38eff1cf72aad1c11a89843b5fd8882b5"
+}

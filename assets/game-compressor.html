@@ -1,0 +1,2068 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Game Compressor</title>
+  <style>
+    :root {
+      --bg: #f6f8fc;
+      --surface: rgba(255, 255, 255, .82);
+      --surface-solid: #ffffff;
+      --surface-2: #edf3fb;
+      --line: rgba(31, 47, 78, .12);
+      --text: #111827;
+      --muted: #697588;
+      --accent: #1769ff;
+      --accent-2: #6d8dff;
+      --danger: #d84c5b;
+      --focus: #1f6fff;
+      --shadow: rgba(37, 51, 81, .16);
+      --soft-shadow: 0 18px 46px rgba(39, 54, 84, .10);
+      --button-shadow: 0 18px 42px rgba(23, 105, 255, .24);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Avenir Next", "Segoe UI", sans-serif;
+      font-size: 15px;
+      letter-spacing: 0;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    button {
+      font: inherit;
+      color: inherit;
+      border: 0;
+      background: none;
+    }
+
+    button:focus-visible {
+      outline: 3px solid rgba(31, 111, 255, .28);
+      outline-offset: 3px;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) 1fr;
+      height: 100%;
+      min-height: 0;
+      padding: 18px;
+      gap: 18px;
+      background:
+        linear-gradient(145deg, #ffffff 0%, #f3f7ff 42%, #f8fbff 100%);
+    }
+
+    .icon-btn {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .icon-btn svg,
+    .status-dot svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .sidebar {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--surface);
+      box-shadow: var(--soft-shadow);
+      overflow: hidden;
+      backdrop-filter: blur(22px);
+    }
+
+    .sidebar-head {
+      padding: 24px 22px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .sidebar-head h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 760;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .sidebar-meta {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .game-list {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+    }
+
+    .game-row {
+      display: grid;
+      grid-template-columns: 54px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      width: 100%;
+      min-height: 78px;
+      padding: 12px;
+      border-radius: 22px;
+      cursor: pointer;
+      text-align: left;
+      color: var(--text);
+      transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+    }
+
+    .game-row:hover { transform: translateY(-1px); background: rgba(255,255,255,.72); }
+    .game-row:active { transform: scale(.985); }
+    .game-row.is-selected {
+      background: var(--surface-solid);
+      box-shadow: 0 14px 34px rgba(37, 51, 81, .12);
+    }
+
+    .thumb,
+    .hero-icon {
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border-radius: 16px;
+      background: linear-gradient(145deg, #eef4ff, #dce8fb);
+      color: var(--accent);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 10px 24px rgba(37, 51, 81, .12);
+    }
+
+    .thumb {
+      width: 54px;
+      height: 54px;
+      font-size: 11px;
+      font-weight: 760;
+      transition: transform .18s ease, box-shadow .18s ease;
+      will-change: transform;
+    }
+
+    .game-row:hover .thumb {
+      transform: translateY(-1px) scale(1.04);
+    }
+
+    .thumb img,
+    .hero-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .row-title {
+      min-width: 0;
+      font-size: 15px;
+      font-weight: 720;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row-sub {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.72);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .chip.ok { color: #14895b; border-color: rgba(20,137,91,.20); background: #eaf8f1; }
+    .chip.warn { color: #a56a05; border-color: rgba(165,106,5,.18); background: #fff5dd; }
+    .chip.run { color: #0d5bdd; border-color: rgba(19,102,255,.20); background: #eaf2ff; }
+    .chip.bad { color: #bc3047; border-color: rgba(216,76,91,.18); background: #fff0f2; }
+    .chip.compressing { color: #0d5bdd; border-color: rgba(19,102,255,.22); background: #eaf2ff; }
+    .chip.closing { color: #5b6472; border-color: rgba(91,100,114,.22); background: #edf1f5; }
+    .chip.mounting { color: #216b8f; border-color: rgba(33,107,143,.22); background: #e8f5fb; }
+    .chip.validating { color: #0f766e; border-color: rgba(15,118,110,.22); background: #e7f7f4; }
+    .chip.repacking { color: #8a5b0d; border-color: rgba(168,112,12,.22); background: #fff4d8; }
+    .chip.moving { color: #386176; border-color: rgba(56,97,118,.22); background: #e9f4f8; }
+    .chip.unpacking { color: #6b4ba1; border-color: rgba(107,75,161,.22); background: #f0ebff; }
+
+    .content {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 64px 1fr;
+      border: 1px solid var(--line);
+      border-radius: 32px;
+      background: rgba(255,255,255,.74);
+      box-shadow: var(--soft-shadow);
+      overflow: hidden;
+      backdrop-filter: blur(22px);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .icon-btn {
+      background: rgba(255,255,255,.64);
+      border: 1px solid var(--line);
+      box-shadow: 0 8px 20px rgba(37, 51, 81, .08);
+      transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+    }
+
+    .icon-btn:hover {
+      background: var(--surface-solid);
+      color: var(--accent);
+      transform: translateY(-1px);
+      box-shadow: 0 12px 28px rgba(37, 51, 81, .12);
+    }
+
+    .info-launcher {
+      position: fixed;
+      left: 18px;
+      bottom: 18px;
+      z-index: 7;
+    }
+
+    .detail {
+      min-height: 0;
+      overflow: auto;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+    }
+
+    .detail-inner {
+      width: min(760px, 100%);
+      display: grid;
+      justify-items: center;
+      gap: 20px;
+    }
+
+    .hero-icon {
+      width: 168px;
+      height: 168px;
+      font-size: 36px;
+      font-weight: 780;
+      border-radius: 34px;
+      box-shadow: 0 24px 60px rgba(37, 51, 81, .18);
+    }
+
+    .hero-icon.is-new-icon {
+      animation: icon-arrive .35s cubic-bezier(.2,.8,.2,1);
+    }
+
+    .game-title {
+      margin: 0;
+      max-width: 100%;
+      font-size: 38px;
+      line-height: 1.12;
+      text-align: center;
+      overflow-wrap: anywhere;
+      font-weight: 780;
+      letter-spacing: 0;
+    }
+
+    .facts {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      color: var(--muted);
+    }
+
+    .primary-area {
+      width: min(440px, 100%);
+      display: grid;
+      gap: 10px;
+    }
+
+    .action-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 64px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .active-action-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 64px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .primary-btn,
+    .pending-box,
+    .progress-box {
+      min-height: 72px;
+      border-radius: 22px;
+      padding: 14px 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #fff;
+      font-size: 20px;
+      font-weight: 780;
+      cursor: pointer;
+      box-shadow: var(--button-shadow);
+      transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+    }
+
+    .primary-btn:hover {
+      filter: brightness(1.04);
+      transform: translateY(-1px);
+      box-shadow: 0 22px 52px rgba(19, 102, 255, .28);
+    }
+    .primary-btn:active { transform: scale(.985); }
+    .primary-btn:disabled {
+      cursor: default;
+      filter: saturate(.6);
+      opacity: .7;
+    }
+
+    .more-btn {
+      width: 64px;
+      height: 64px;
+      min-height: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--surface-solid);
+      border: 1px solid var(--line);
+      color: var(--text);
+      cursor: pointer;
+      box-shadow: 0 14px 34px rgba(37, 51, 81, .10);
+      transition: transform .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
+    }
+
+    .more-dots {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      width: 22px;
+      height: 22px;
+    }
+
+    .more-dots span {
+      width: 4px;
+      height: 4px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    .more-btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(19,102,255,.28);
+      color: var(--accent);
+      box-shadow: 0 18px 42px rgba(37, 51, 81, .13);
+    }
+
+    .more-btn:active { transform: scale(.985); }
+
+    .more-btn svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .secondary-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 10px);
+      z-index: 6;
+      width: min(260px, calc(100vw - 52px));
+      padding: 8px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.94);
+      box-shadow: 0 24px 64px rgba(37, 51, 81, .18);
+      backdrop-filter: blur(22px);
+      animation: menu-in .16s cubic-bezier(.2,.8,.2,1);
+    }
+
+    .menu-action {
+      width: 100%;
+      min-height: 46px;
+      padding: 0 13px;
+      border-radius: 13px;
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      font-weight: 700;
+      transition: background .16s ease, color .16s ease, transform .16s ease;
+    }
+
+    .menu-action:hover {
+      background: #eef4ff;
+      color: var(--accent);
+      transform: translateX(1px);
+    }
+
+    .menu-action:active { transform: scale(.99); }
+
+    .pending-box,
+    .progress-box {
+      background: var(--surface-solid);
+      color: var(--text);
+      box-shadow: 0 14px 34px rgba(37, 51, 81, .10);
+      cursor: default;
+      border: 1px solid var(--line);
+    }
+
+    .progress-box {
+      display: grid;
+      gap: 10px;
+      align-content: center;
+      color: #374151;
+      background: #f4f5f7;
+    }
+
+    .progress-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 7px;
+      min-width: 0;
+      color: #374151;
+      font-weight: 400;
+      text-align: center;
+    }
+
+    .progress-label {
+      font-size: 21px;
+      line-height: 1.08;
+      font-weight: 400;
+    }
+
+    .progress-percent {
+      font-size: 16px;
+      line-height: 1;
+      font-weight: 400;
+      color: #4b5563;
+    }
+
+    .progress-repair-count {
+      justify-self: center;
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.72);
+      border: 1px solid rgba(168,112,12,.18);
+      color: #8a5b0d;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.1;
+      text-align: center;
+    }
+
+    .progress-times {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .progress-time {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      white-space: nowrap;
+    }
+
+    .progress-time svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: 0 0 auto;
+    }
+
+    .progress-speed {
+      color: var(--accent);
+    }
+
+    .progress-box.is-compressing .progress-fill {
+      background: linear-gradient(90deg, var(--accent), #78a3ff);
+    }
+
+    .progress-box.is-closing .progress-fill {
+      background: linear-gradient(90deg, #5b6472, #9aa3af);
+    }
+
+    .progress-box.is-mounting .progress-fill {
+      background: linear-gradient(90deg, #216b8f, #69b8d8);
+    }
+
+    .progress-box.is-validating .progress-fill {
+      background: linear-gradient(90deg, #0f766e, #4fc3b5);
+    }
+
+    .progress-box.is-repacking .progress-fill {
+      background: linear-gradient(90deg, #b7791f, #f2c15f);
+    }
+
+    .progress-box.is-moving .progress-fill {
+      background: linear-gradient(90deg, #386176, #79b6cb);
+    }
+
+    .progress-box.is-unpacking .progress-fill {
+      background: linear-gradient(90deg, #6b4ba1, #a995df);
+    }
+
+    .pending-box {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      font-size: 15px;
+      font-weight: 500;
+      line-height: 1.2;
+    }
+
+    .pending-label {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .small-action {
+      height: 40px;
+      padding: 0 14px;
+      border-radius: 14px;
+      background: var(--surface-solid);
+      border: 1px solid var(--line);
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 680;
+      box-shadow: 0 8px 18px rgba(37, 51, 81, .07);
+      transition: transform .18s ease, border-color .18s ease, color .18s ease;
+    }
+
+    .small-action:hover { transform: translateY(-1px); border-color: rgba(19,102,255,.28); color: var(--accent); }
+    .small-action:active { transform: scale(.98); }
+
+    .bar {
+      height: 8px;
+      border-radius: 999px;
+      background: #dfe7f4;
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #78a3ff);
+      transition: width .35s cubic-bezier(.2,.8,.2,1);
+    }
+
+    .path-box {
+      width: min(720px, 100%);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .path-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 38px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .path-line {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255,255,255,.52);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .copy-path {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 13px;
+      border: 1px solid var(--line);
+      background: var(--surface-solid);
+      color: var(--muted);
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(37, 51, 81, .07);
+      transition: transform .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
+    }
+
+    .copy-path:hover {
+      transform: translateY(-1px);
+      border-color: rgba(19,102,255,.28);
+      color: var(--accent);
+      box-shadow: 0 12px 26px rgba(37, 51, 81, .11);
+    }
+
+    .copy-path:active { transform: scale(.96); }
+
+    .copy-path svg {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .empty {
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(35, 48, 71, .28);
+      backdrop-filter: blur(18px);
+      z-index: 10;
+    }
+
+    .modal-backdrop.hidden { display: none; }
+
+    .modal {
+      width: min(720px, 100%);
+      max-height: min(680px, 90vh);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      background: rgba(255,255,255,.92);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      box-shadow: 0 24px 80px var(--shadow);
+      overflow: hidden;
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 750;
+    }
+
+    .modal-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 14px;
+    }
+
+    .about-copy {
+      display: grid;
+      gap: 10px;
+      padding: 18px;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.68);
+      text-align: center;
+    }
+
+    .about-main {
+      font-size: 19px;
+      line-height: 1.25;
+      font-weight: 760;
+    }
+
+    .about-sub {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.35;
+      font-weight: 600;
+    }
+
+    .about-made {
+      margin-top: 4px;
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.35;
+      font-weight: 680;
+    }
+
+    .about-emoji {
+      display: inline-block;
+      margin: 0 3px;
+    }
+
+    .history-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      margin-bottom: 10px;
+      background: rgba(255,255,255,.68);
+    }
+
+    .history-title {
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .history-meta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .usb-row,
+    .format-row {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      margin-bottom: 10px;
+      background: rgba(255,255,255,.68);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .usb-row:hover,
+    .format-row:hover {
+      border-color: var(--accent);
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding-top: 14px;
+    }
+
+    .danger-text { color: var(--danger); }
+
+    @keyframes icon-arrive {
+      from { transform: translateY(8px) scale(.98); opacity: .78; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    @keyframes menu-in {
+      from { opacity: 0; transform: translateY(-4px) scale(.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: .001ms !important;
+        transition-duration: .001ms !important;
+      }
+    }
+
+    @media (max-width: 760px) {
+      html,
+      body {
+        height: auto;
+        min-height: 100%;
+      }
+
+      body { overflow: auto; }
+
+      .app {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(260px, 42vh) minmax(520px, auto);
+        min-height: 100vh;
+        height: auto;
+        padding: 10px;
+        gap: 10px;
+      }
+
+      .icon-btn {
+        width: 40px;
+        height: 40px;
+      }
+
+      .sidebar {
+        grid-column: 1;
+        grid-row: 1;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 24px;
+      }
+
+      .sidebar-head { padding: 18px 14px 12px; }
+
+      .game-list { padding: 8px; }
+
+      .game-row {
+        grid-template-columns: 54px minmax(0, 1fr) auto;
+      }
+
+      .content {
+        grid-column: 1;
+        grid-row: 2;
+        grid-template-rows: 52px auto;
+        border-radius: 24px;
+      }
+
+      .topbar {
+        min-height: 52px;
+        padding: 6px 10px;
+      }
+
+      .info-launcher {
+        left: 14px;
+        bottom: 14px;
+      }
+
+      .detail {
+        align-items: start;
+        padding: 22px 16px 28px;
+      }
+
+      .detail-inner { gap: 16px; }
+
+      .hero-icon {
+        width: 128px;
+        height: 128px;
+      }
+
+      .game-title { font-size: 25px; }
+
+      .primary-btn,
+      .pending-box,
+      .progress-box {
+        min-height: 64px;
+        font-size: 18px;
+      }
+
+      .more-btn {
+        width: 56px;
+        height: 56px;
+      }
+
+      .action-row {
+        grid-template-columns: minmax(0, 1fr) 56px;
+      }
+
+      .active-action-row {
+        grid-template-columns: minmax(0, 1fr) 56px;
+      }
+
+      .path-line {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <h1>Game Compressor</h1>
+        <div class="sidebar-meta" id="count-label">0 games</div>
+      </div>
+      <div class="game-list" id="game-list"></div>
+    </aside>
+
+    <main class="content">
+      <div class="topbar">
+        <button class="icon-btn" id="history-top" title="History" aria-label="History"></button>
+      </div>
+      <section class="detail" id="detail"></section>
+    </main>
+  </div>
+
+  <button class="icon-btn info-launcher" id="info-top" title="About" aria-label="About Game Compressor"></button>
+
+  <div class="modal-backdrop hidden" id="history-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="history-title">
+      <div class="modal-head">
+        <div class="modal-title" id="history-title">History</div>
+        <button class="icon-btn" id="history-close" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="history-body"></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="info-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="info-title">
+      <div class="modal-head">
+        <div class="modal-title" id="info-title">About</div>
+        <button class="icon-btn" id="info-close" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="about-copy">
+          <div class="about-main">Built by Juma Sayeh</div>
+          <div class="about-sub">Tested by Osama Abualia</div>
+          <div class="about-made">Made with <span class="about-emoji">❤️</span> in <span class="about-emoji">🇵🇸</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="usb-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="usb-title">
+      <div class="modal-head">
+        <div class="modal-title" id="usb-title">Move to USB</div>
+        <button class="icon-btn" id="usb-close" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="usb-body"></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="format-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="format-title">
+      <div class="modal-head">
+        <div class="modal-title" id="format-title">Compression Format</div>
+        <button class="icon-btn" id="format-close" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="format-body">
+        <button class="format-row" data-compress-format="pfs">
+          <div>
+            <div class="history-title">PFS</div>
+            <div class="history-meta" id="format-pfs-name">pfs_image.dat</div>
+          </div>
+          <span class="chip">Select</span>
+        </button>
+        <button class="format-row" data-compress-format="exfat">
+          <div>
+            <div class="history-title">exFAT</div>
+            <div class="history-meta" id="format-exfat-name">&lt;TITLE_ID&gt;.exfat</div>
+          </div>
+          <span class="chip">Select</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SELECTED_GAME_COOKIE = 'game_compressor_selected_title';
+
+    const state = {
+      games: [],
+      history: [],
+      usb: [],
+      job: null,
+      speed: {
+        activeId: '',
+        copiedBytes: 0,
+        sampledAt: 0,
+        bytesPerSecond: 0
+      },
+      selected: '',
+      revealSelected: false,
+      moveGame: null,
+      compressGame: null,
+      secondaryMenuFor: '',
+      iconCache: {},
+      iconRequests: {},
+      iconFailures: {},
+      animatedIconKeys: {},
+      renderKeys: {
+        list: '',
+        detail: '',
+        history: ''
+      }
+    };
+    let refreshAllInFlight = false;
+    let refreshJobInFlight = false;
+
+    const $ = (id) => document.getElementById(id);
+
+    function cookieValue(name) {
+      const prefix = encodeURIComponent(name) + '=';
+      const parts = document.cookie ? document.cookie.split(';') : [];
+      for (const part of parts) {
+        const value = part.trim();
+        if (value.indexOf(prefix) === 0) {
+          try {
+            return decodeURIComponent(value.slice(prefix.length));
+          } catch (err) {
+            return value.slice(prefix.length);
+          }
+        }
+      }
+      return '';
+    }
+
+    function writeCookie(name, value, maxAgeDays) {
+      const maxAge = Math.max(1, Math.floor(Number(maxAgeDays || 180))) * 24 * 60 * 60;
+      document.cookie = encodeURIComponent(name) + '=' + encodeURIComponent(value) +
+        '; Max-Age=' + maxAge + '; Path=/; SameSite=Lax';
+    }
+
+    function rememberSelectedGame(titleId) {
+      if (!titleId) return;
+      writeCookie(SELECTED_GAME_COOKIE, titleId, 180);
+    }
+
+    function selectGame(titleId, remember, reveal) {
+      if (!titleId) return;
+      state.selected = titleId;
+      state.secondaryMenuFor = '';
+      if (remember) rememberSelectedGame(titleId);
+      if (reveal) state.revealSelected = true;
+    }
+
+    function restoreSelectedGame() {
+      const titleId = cookieValue(SELECTED_GAME_COOKIE);
+      if (!titleId) return;
+      selectGame(titleId, false, true);
+    }
+
+    function icon(name) {
+      const paths = {
+        history: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/>',
+        info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+        timer: '<path d="M9 2h6"/><path d="M12 6v2"/><circle cx="12" cy="14" r="8"/><path d="M12 10v4l3 2"/>',
+        copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+        close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
+      };
+      return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (paths[name] || '') + '</svg>';
+    }
+
+    function shortSize(bytes) {
+      const value = Number(bytes || 0);
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let n = value;
+      let i = 0;
+      while (n >= 1024 && i < units.length - 1) {
+        n /= 1024;
+        i++;
+      }
+      return (i === 0 ? n.toFixed(0) : n.toFixed(n >= 10 ? 1 : 2)) + ' ' + units[i];
+    }
+
+    function speedText(bytesPerSecond) {
+      const value = Number(bytesPerSecond || 0);
+      return value > 0 ? shortSize(value) + '/s' : '--';
+    }
+
+    async function api(url, options) {
+      const res = await fetch(url, Object.assign({ cache: 'no-store' }, options || {}));
+      const text = await res.text();
+      let data = {};
+      try { data = text ? JSON.parse(text) : {}; } catch (err) {}
+      if (!res.ok) {
+        const e = new Error(data.error || text || res.statusText);
+        e.data = data;
+        throw e;
+      }
+      return data;
+    }
+
+    function selectedGame() {
+      return state.games.find((g) => g.titleId === state.selected) || state.games[0] || null;
+    }
+
+    function jobForOperation(op) {
+      if (!op || !state.job || !state.job.busy) return null;
+      return String(state.job.activeId || '') === String(op.id || '') ? state.job : null;
+    }
+
+    function operationVisual(op, job) {
+      const action = String((op && op.action) || (job && job.verb) || '').toLowerCase();
+      const phase = String((job && job.phase) || (op && op.phase) || '').toLowerCase();
+      const current = String((job && job.current) || '').toLowerCase();
+      const repairBlocks = Number((job && job.repairBlocks) ||
+        (op && (op.badBlocksFound || op.repairedBlocks)) || 0);
+
+      if (phase === 'closing' || current.indexOf('closing') !== -1) {
+        return { label: 'Closing', className: 'closing' };
+      }
+      if (phase === 'mounting' ||
+          current.indexOf('requesting shadowmount') !== -1 ||
+          current.indexOf('waiting for shadowmount') !== -1 ||
+          current.indexOf('waiting for remount') !== -1 ||
+          current.indexOf('remount') !== -1) {
+        return { label: 'Mounting', className: 'mounting' };
+      }
+      if (action === 'move-to-usb' || action === 'move-to-internal' || phase === 'copying') {
+        return { label: 'Moving', className: 'moving' };
+      }
+      if (action === 'uncompress') {
+        return { label: 'Unpacking', className: 'unpacking' };
+      }
+      if (action === 'validate-repair' &&
+          repairBlocks <= 0 &&
+          (phase === 'repairing' || current.indexOf('repairing') !== -1)) {
+        return { label: 'Validating', className: 'validating' };
+      }
+      if (phase === 'repairing' ||
+          phase === 'metadata' ||
+          current.indexOf('repairing') !== -1 ||
+          current.indexOf('finalizing') !== -1) {
+        return { label: 'Repacking', className: 'repacking' };
+      }
+      if (action === 'validate-repair' ||
+          phase === 'scanning' ||
+          phase === 'opening' ||
+          phase === 'finding-mounted-image' ||
+          current.indexOf('validat') !== -1 ||
+          current.indexOf('scanning mounted') !== -1 ||
+          current.indexOf('checking shadowmount') !== -1) {
+        return { label: 'Validating', className: 'validating' };
+      }
+      if (action === 'compress') {
+        return { label: 'Compressing', className: 'compressing' };
+      }
+      return { label: 'Running', className: 'run' };
+    }
+
+    function visualShowsPercent(visual) {
+      return !visual ||
+        (visual.className !== 'closing' && visual.className !== 'mounting');
+    }
+
+    function visualShowsThroughput(visual) {
+      return !!visual &&
+        visual.className !== 'closing' &&
+        visual.className !== 'mounting';
+    }
+
+    function statusChip(g) {
+      if (g.activeOp) {
+        const visual = operationVisual(g.activeOp, jobForOperation(g.activeOp));
+        return '<span class="chip ' + visual.className + '" data-active-op-chip="' +
+          escapeHtml(g.titleId) + '">' + escapeHtml(visual.label) + '</span>';
+      }
+      if (g.pendingOp) {
+        return '<span class="chip warn">' +
+          escapeHtml(pendingOperationLabel(g.pendingOp).toLowerCase()) +
+          '</span>';
+      }
+      if (g.sourceKind === 'compressed') {
+        if (g.validation === 'validated') return '<span class="chip ok">validated</span>';
+        if (g.validation === 'changed') return '<span class="chip warn">changed</span>';
+        return '<span class="chip bad">not validated</span>';
+      }
+      if (g.sourceKind === 'folder') return '<span class="chip">folder</span>';
+      if (g.sourceKind === 'image') return '<span class="chip">image</span>';
+      return '<span class="chip bad">unavailable</span>';
+    }
+
+    function savedChip(g) {
+      const saved = Number(g && g.savedBytes || 0);
+      if (!g || g.sourceKind !== 'compressed' || saved <= 0) return '';
+      return '<span class="chip ok">saved ' + escapeHtml(shortSize(saved)) + '</span>';
+    }
+
+    function repairBlocksForOperation(op, job) {
+      const action = String((op && op.action) || (job && job.verb) || '').toLowerCase();
+      const storedBlocks = op && op.badBlocksFound !== undefined && op.badBlocksFound !== null
+        ? op.badBlocksFound
+        : op && op.repairedBlocks;
+      const persistedBlocks = Math.max(0, Number(storedBlocks || 0));
+      if (persistedBlocks > 0) return persistedBlocks;
+      const liveBlocks = Math.max(0, Number((job && job.repairBlocks) || 0));
+      if (liveBlocks <= 0) return 0;
+      if (action === 'validate-repair') return liveBlocks;
+      const phase = String((job && job.phase) || (op && op.phase) || '').toLowerCase();
+      if (action === 'compress' &&
+          (phase === 'repairing' || phase === 'validating' || phase === 'mounting')) {
+        return liveBlocks;
+      }
+      return 0;
+    }
+
+    function repairedBlocksText(op, job) {
+      const blocks = repairBlocksForOperation(op, job);
+      if (blocks <= 0) return '';
+      return blocks + ' block' + (blocks === 1 ? '' : 's') + ' repaired';
+    }
+
+    function historyResultLabel(op, job) {
+      const result = (op.phase && op.phase !== 'complete') ? op.phase :
+        (op.result || op.status);
+      const repairText = repairedBlocksText(op, job);
+      if (!repairText) return result;
+      return op.status === 'failed' && result ?
+        result + ' - ' + repairText :
+        repairText;
+    }
+
+    function iconPath(g) {
+      if (!g || !g.hasIcon) return '';
+      const version = iconVersion(g);
+      const suffix = version ? '&v=' + encodeURIComponent(version) : '';
+      return '/api/gc/icon?titleId=' + encodeURIComponent(g.titleId) + suffix;
+    }
+
+    function updateIconElements(path, objectUrl) {
+      document.querySelectorAll('[data-icon-path]').forEach((el) => {
+        if (el.getAttribute('data-icon-path') !== path) return;
+        if (el.tagName && el.tagName.toLowerCase() === 'img') {
+          el.setAttribute('src', objectUrl);
+          return;
+        }
+        const img = document.createElement('img');
+        img.src = objectUrl;
+        img.alt = '';
+        img.setAttribute('data-icon-path', path);
+        el.replaceWith(img);
+      });
+    }
+
+    function ensureIconLoaded(path) {
+      if (!path || state.iconCache[path] || state.iconRequests[path] || state.iconFailures[path]) return;
+      state.iconRequests[path] = true;
+      fetch(path, { cache: 'force-cache' })
+        .then((res) => {
+          if (!res.ok) throw new Error('icon fetch failed');
+          return res.blob();
+        })
+        .then((blob) => {
+          const objectUrl = URL.createObjectURL(blob);
+          state.iconCache[path] = objectUrl;
+          updateIconElements(path, objectUrl);
+        })
+        .catch(() => {
+          state.iconFailures[path] = true;
+        })
+        .finally(() => {
+          delete state.iconRequests[path];
+        });
+    }
+
+    function gameIcon(g, hero) {
+      const text = (g && g.titleId ? g.titleId.slice(4) : 'GC');
+      if (g && g.hasIcon) {
+        const path = iconPath(g);
+        const cached = state.iconCache[path];
+        if (cached) {
+          return '<img src="' + escapeHtml(cached) + '" alt="" data-icon-path="' +
+            escapeHtml(path) + '">';
+        }
+        ensureIconLoaded(path);
+        return '<span data-icon-path="' + escapeHtml(path) + '">' + text + '</span>';
+      }
+      return '<span>' + text + '</span>';
+    }
+
+    function heroIconClass(g) {
+      const key = iconPath(g) || ('title:' + ((g && g.titleId) || ''));
+      if (!state.animatedIconKeys[key]) {
+        state.animatedIconKeys[key] = true;
+        return ' is-new-icon';
+      }
+      return '';
+    }
+
+    function keyPart(value) {
+      if (value === null || value === undefined) return '';
+      return String(value).replace(/[|\\]/g, '\\$&');
+    }
+
+    function iconVersion(g) {
+      if (!g || !g.hasIcon) return '';
+      const size = Number(g.iconSize || 0);
+      const mtime = Number(g.iconMtime || 0);
+      return size || mtime ? size + '-' + mtime : '';
+    }
+
+    function opKey(op) {
+      if (!op) return '';
+      return [
+        op.id, op.titleId, op.displayName, op.action, op.status, op.phase,
+        op.result, op.error, op.sourcePath, op.outputPath, op.sourceKind,
+        op.deletePolicy, op.createdAt, op.startedAt, op.endedAt,
+        op.repairedBlocks, op.badBlocksFound
+      ].map(keyPart).join('|');
+    }
+
+    function gameKey(g) {
+      return [
+        g.titleId, g.name, g.sourceKind, g.sourcePath, g.outputPath,
+        g.storage, g.validation, g.primaryAction, g.sourceSize, g.freeBytes,
+        g.requiredBytes, g.extraBytes, g.savedBytes,
+        g.compressionSourceSize, g.compressedSize,
+        g.canStreamDelete, g.hasIcon,
+        iconVersion(g), g.outputExists, g.canMoveToUsb, g.canMoveToInternal,
+        opKey(g.activeOp), opKey(g.pendingOp)
+      ].map(keyPart).join('|');
+    }
+
+    function listKey() {
+      return state.selected + '::' + state.games.map(gameKey).join('||');
+    }
+
+    function detailKey() {
+      const g = selectedGame();
+      if (!g) return 'empty';
+      return [
+        gameKey(g), actionFor(g), actionLabel(g),
+        state.secondaryMenuFor === g.titleId ? 'menu' : ''
+      ].map(keyPart).join('|');
+    }
+
+    function historyKey() {
+      const job = state.job || {};
+      return state.history.map(opKey).join('||') + '::' +
+        keyPart(job.activeId) + '::' + keyPart(job.repairBlocks);
+    }
+
+    function renderList(force) {
+      const key = listKey();
+      if (!force && state.renderKeys.list === key) return;
+      state.renderKeys.list = key;
+      $('count-label').textContent = state.games.length +
+        (state.games.length === 1 ? ' game' : ' games');
+      const list = $('game-list');
+      if (!state.games.length) {
+        list.innerHTML = '<div class="empty">No games found</div>';
+        return;
+      }
+      list.innerHTML = state.games.map((g) => (
+        '<button class="game-row ' + (g.titleId === state.selected ? 'is-selected' : '') + '" data-id="' + g.titleId + '">' +
+          '<div class="thumb">' + gameIcon(g, false) + '</div>' +
+          '<div><div class="row-title">' + escapeHtml(g.name || g.titleId) + '</div>' +
+          '<div class="row-sub">' + escapeHtml(g.titleId) + '</div></div>' +
+          statusChip(g) +
+        '</button>'
+      )).join('');
+      list.querySelectorAll('.game-row').forEach((row) => {
+        row.addEventListener('click', () => {
+          selectGame(row.getAttribute('data-id'), true, false);
+          render();
+        });
+      });
+      if (state.revealSelected) {
+        state.revealSelected = false;
+        const selectedRow = list.querySelector('.game-row.is-selected');
+        if (selectedRow && selectedRow.scrollIntoView) {
+          try {
+            selectedRow.scrollIntoView({ block: 'nearest' });
+          } catch (err) {
+            selectedRow.scrollIntoView();
+          }
+        }
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[ch]));
+    }
+
+    function actionFor(g) {
+      if (!g) return '';
+      if (g.sourceKind === 'compressed') return 'validate-repair';
+      if (g.sourceKind === 'folder' || g.sourceKind === 'image') return 'compress';
+      return '';
+    }
+
+    function actionLabel(g) {
+      const action = actionFor(g);
+      if (action === 'validate-repair') return g.primaryAction || 'Validate and Repair';
+      if (action === 'compress') return g.primaryAction || 'Compress';
+      return 'Start';
+    }
+
+    function pendingOperationLabel(op) {
+      const action = String((op && op.action) || '').toLowerCase();
+      if (action === 'compress') return 'Pending Compress';
+      if (action === 'validate-repair') return 'Pending Validate';
+      if (action === 'uncompress') return 'Pending Unpack';
+      if (action === 'move-to-usb') return 'Pending Move to USB';
+      if (action === 'move-to-internal') return 'Pending Move to Internal SSD';
+      return 'Pending Operation';
+    }
+
+    function progressPercent() {
+      const job = state.job || {};
+      const total = Number(job.totalBytes || 0);
+      const copied = Number(job.copiedBytes || 0);
+      if (total > 0) return Math.max(0, Math.min(100, copied / total * 100));
+      const count = Number(job.phaseCount || 0);
+      const step = Number(job.phaseStep || 0);
+      if (count > 0) return Math.max(0, Math.min(100, step / count * 100));
+      return 0;
+    }
+
+    function formatDuration(seconds) {
+      let value = Math.max(0, Math.floor(Number(seconds || 0)));
+      const hours = Math.floor(value / 3600);
+      value -= hours * 3600;
+      const minutes = Math.floor(value / 60);
+      const secs = value - minutes * 60;
+      const two = (n) => String(n).padStart(2, '0');
+      return hours > 0
+        ? hours + ':' + two(minutes) + ':' + two(secs)
+        : minutes + ':' + two(secs);
+    }
+
+    function progressTiming() {
+      const job = state.job || {};
+      const elapsed = Math.max(0, Number(job.elapsedSeconds || 0));
+      const copied = Math.max(0, Number(job.copiedBytes || 0));
+      const percent = progressPercent();
+      const fraction = percent / 100;
+      const remaining = fraction >= 1
+        ? 0
+        : fraction > 0.001 && elapsed > 0
+        ? Math.max(0, elapsed * (1 - fraction) / fraction)
+        : null;
+      const averageSpeed = elapsed > 0 ? copied / elapsed : 0;
+      const instantSpeed = Number(state.speed.bytesPerSecond || 0);
+      return {
+        percent,
+        elapsedText: formatDuration(elapsed),
+        remainingText: remaining === null ? '--' : formatDuration(remaining),
+        speedText: speedText(instantSpeed || averageSpeed)
+      };
+    }
+
+    function updateSpeedSample(job) {
+      const activeId = String((job && job.activeId) || '');
+      const busy = !!(job && job.busy);
+      const copied = Math.max(0, Number((job && job.copiedBytes) || 0));
+      const now = Date.now();
+      if (!busy || !activeId) {
+        state.speed.activeId = '';
+        state.speed.copiedBytes = 0;
+        state.speed.sampledAt = 0;
+        state.speed.bytesPerSecond = 0;
+        return;
+      }
+      if (state.speed.activeId !== activeId ||
+          state.speed.sampledAt <= 0 ||
+          copied < state.speed.copiedBytes) {
+        state.speed.activeId = activeId;
+        state.speed.copiedBytes = copied;
+        state.speed.sampledAt = now;
+        state.speed.bytesPerSecond = 0;
+        return;
+      }
+      const elapsedMs = now - state.speed.sampledAt;
+      if (elapsedMs >= 250) {
+        const delta = copied - state.speed.copiedBytes;
+        state.speed.bytesPerSecond = delta > 0 ? delta * 1000 / elapsedMs : 0;
+        state.speed.copiedBytes = copied;
+        state.speed.sampledAt = now;
+      }
+    }
+
+    function secondaryActions(g) {
+      if (!g || g.activeOp || g.pendingOp || g.sourceKind === 'unknown') return [];
+      const actions = [];
+      if (g.sourceKind === 'compressed') {
+        actions.push({ id: 'uncompress', label: 'Uncompress' });
+      }
+      if (g.canMoveToUsb) {
+        actions.push({ id: 'move-usb', label: 'Move to USB' });
+      }
+      if (g.canMoveToInternal) {
+        actions.push({ id: 'move-internal', label: 'Move to Internal SSD' });
+      }
+      return actions;
+    }
+
+    function renderSecondaryMenu(g, actions) {
+      if (state.secondaryMenuFor !== g.titleId) return '';
+      return '<div class="secondary-menu" id="secondary-menu" role="menu">' +
+        actions.map((action) => (
+          '<button class="menu-action" role="menuitem" data-secondary-action="' + escapeHtml(action.id) + '">' +
+            escapeHtml(action.label) +
+          '</button>'
+        )).join('') +
+      '</div>';
+    }
+
+    function renderPrimary(g) {
+      if (!g) return '';
+      if (g.activeOp) {
+        const progress = progressTiming();
+        const job = jobForOperation(g.activeOp);
+        const visual = operationVisual(g.activeOp, job);
+        const percentText = visualShowsPercent(visual)
+          ? '<span class="progress-percent">' + progress.percent.toFixed(0) + '%</span>'
+          : '';
+        const throughputHtml = visualShowsThroughput(visual)
+          ? '<span class="progress-time progress-speed">Speed: ' +
+              '<span class="progress-speed-value">' + progress.speedText + '</span></span>' +
+            '<span class="progress-time progress-remaining">Remaining: ' +
+              '<span class="progress-remaining-value">' + progress.remainingText + '</span></span>'
+          : '';
+        const repairText = repairedBlocksText(g.activeOp, job);
+        const repairHtml = repairText
+          ? '<div class="progress-repair-count">' + escapeHtml(repairText) + '</div>'
+          : '';
+        return '<div class="active-action-row">' +
+          '<div class="progress-box is-' + visual.className + '">' +
+            '<div class="progress-heading">' +
+              '<span class="progress-label">' + escapeHtml(visual.label) + '</span>' +
+              percentText +
+            '</div>' +
+            repairHtml +
+            '<div class="bar"><span class="progress-fill" style="width:' + progress.percent.toFixed(1) + '%"></span></div>' +
+            '<div class="progress-times">' +
+              '<span class="progress-time progress-elapsed">' + icon('timer') +
+                '<span class="progress-elapsed-value">' + progress.elapsedText + '</span></span>' +
+              throughputHtml +
+            '</div>' +
+          '</div>' +
+          '<button class="more-btn" id="cancel-active" aria-label="Cancel operation">' + icon('close') + '</button>' +
+        '</div>';
+      }
+      if (g.pendingOp) {
+        return '<div class="pending-box"><div class="pending-label">' +
+          escapeHtml(pendingOperationLabel(g.pendingOp)) + '</div>' +
+          '<button class="small-action" id="cancel-pending">Cancel</button></div>';
+      }
+      const action = actionFor(g);
+      if (!action) return '<button class="primary-btn" disabled>Unavailable</button>';
+      const primary = '<button class="primary-btn" id="primary-action">' + escapeHtml(actionLabel(g)) + '</button>';
+      const actions = secondaryActions(g);
+      if (!actions.length) return primary;
+      const expanded = state.secondaryMenuFor === g.titleId ? 'true' : 'false';
+      return '<div class="action-row">' +
+        primary +
+        '<button class="more-btn" id="more-actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="' + expanded + '">' +
+          '<span class="more-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
+        '</button>' +
+        renderSecondaryMenu(g, actions) +
+      '</div>';
+    }
+
+    function wirePrimaryControls(g) {
+      const btn = $('primary-action');
+      if (btn) btn.addEventListener('click', () => startAction(g));
+      const cancel = $('cancel-pending');
+      if (cancel && g.pendingOp) {
+        cancel.addEventListener('click', () => cancelPending(g.pendingOp.id));
+      }
+      const cancelActive = $('cancel-active');
+      if (cancelActive && g.activeOp) {
+        cancelActive.addEventListener('click', () => cancelActiveJob());
+      }
+      const more = $('more-actions');
+      if (more) {
+        more.addEventListener('click', (event) => {
+          event.stopPropagation();
+          toggleSecondaryMenu(g);
+        });
+      }
+      document.querySelectorAll('[data-secondary-action]').forEach((item) => {
+        item.addEventListener('click', (event) => {
+          event.stopPropagation();
+          runSecondaryAction(g, item.getAttribute('data-secondary-action'));
+        });
+      });
+    }
+
+    function refreshPrimaryArea(g) {
+      const area = document.querySelector('.primary-area');
+      if (!area) {
+        renderDetail(true);
+        return;
+      }
+      area.innerHTML = renderPrimary(g);
+      wirePrimaryControls(g);
+      state.renderKeys.detail = detailKey();
+    }
+
+    function closeSecondaryMenu() {
+      if (!state.secondaryMenuFor) return;
+      state.secondaryMenuFor = '';
+      refreshPrimaryArea(selectedGame());
+    }
+
+    function toggleSecondaryMenu(g) {
+      if (!g) return;
+      state.secondaryMenuFor = state.secondaryMenuFor === g.titleId ? '' : g.titleId;
+      refreshPrimaryArea(g);
+    }
+
+    function runSecondaryAction(g, action) {
+      closeSecondaryMenu();
+      if (action === 'uncompress') {
+        startAction(g, false, 'uncompress');
+      } else if (action === 'move-usb') {
+        showUsbModal(g);
+      } else if (action === 'move-internal') {
+        startMoveToInternal(g);
+      }
+    }
+
+    async function copyCurrentPath(path) {
+      if (!path) return;
+      let text = null;
+      try {
+        text = document.createElement('textarea');
+        text.value = path;
+        text.setAttribute('readonly', '');
+        text.style.position = 'fixed';
+        text.style.left = '-9999px';
+        text.style.top = '0';
+        document.body.appendChild(text);
+        text.focus();
+        text.select();
+        const copied = document.execCommand('copy');
+        document.body.removeChild(text);
+        text = null;
+        if (!copied && navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(path);
+        }
+      } catch (err) {
+        if (text && text.parentNode) document.body.removeChild(text);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(path);
+            return;
+          } catch (clipboardErr) {}
+        }
+        alert('Could not copy path');
+      }
+    }
+
+    function renderDetail(force) {
+      const key = detailKey();
+      if (!force && state.renderKeys.detail === key) return;
+      state.renderKeys.detail = key;
+      const g = selectedGame();
+      const detail = $('detail');
+      if (!g) {
+        detail.innerHTML = '<div class="empty">No games found</div>';
+        return;
+      }
+      detail.innerHTML =
+        '<div class="detail-inner">' +
+          '<div class="hero-icon' + heroIconClass(g) + '">' + gameIcon(g, true) + '</div>' +
+          '<h2 class="game-title">' + escapeHtml(g.name || g.titleId) + '</h2>' +
+          '<div class="facts">' +
+            '<span class="chip">' + escapeHtml(g.titleId) + '</span>' +
+            '<span class="chip">' + escapeHtml(g.sourceKind) + '</span>' +
+            statusChip(g) +
+            '<span class="chip">' + shortSize(g.sourceSize) + '</span>' +
+            savedChip(g) +
+          '</div>' +
+          '<div class="primary-area">' + renderPrimary(g) + '</div>' +
+          '<div class="path-box">' +
+            '<div class="path-row">' +
+              '<div class="path-line" title="' + escapeHtml(g.sourcePath || '-') + '">' + escapeHtml(g.sourcePath || '-') + '</div>' +
+              '<button class="copy-path" id="copy-path" aria-label="Copy path">' + icon('copy') + '</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      wirePrimaryControls(g);
+      const copyPath = $('copy-path');
+      if (copyPath) {
+        copyPath.addEventListener('click', () => copyCurrentPath(g.sourcePath || ''));
+      }
+    }
+
+    function renderHistory(force) {
+      const key = historyKey();
+      if (!force && state.renderKeys.history === key) return;
+      state.renderKeys.history = key;
+      const body = $('history-body');
+      if (!state.history.length) {
+        body.innerHTML = '<div class="empty">No operations</div>';
+        return;
+      }
+      body.innerHTML = state.history.map((op) => {
+        const chipClass = op.status === 'success' ? 'ok' :
+          op.status === 'failed' ? 'bad' :
+          op.status === 'running' ? 'run' :
+          op.status === 'pending' ? 'warn' : '';
+        const repairText = repairedBlocksText(op, jobForOperation(op));
+        const result = historyResultLabel(op, jobForOperation(op));
+        const repairMeta = repairText && result !== repairText ?
+          '<div class="history-meta">' + escapeHtml(repairText) + '</div>' : '';
+        return '<div class="history-row">' +
+          '<div><div class="history-title">' + escapeHtml(op.displayName || op.titleId) + '</div>' +
+          '<div class="history-meta">' + escapeHtml(op.action) + ' - ' + escapeHtml(result) + '</div>' +
+          repairMeta +
+          (op.error ? '<div class="history-meta danger-text">' + escapeHtml(op.error) + '</div>' : '') +
+          '</div><span class="chip ' + chipClass + '">' + escapeHtml(op.status) + '</span></div>';
+      }).join('');
+    }
+
+    function render(force) {
+      renderList(force);
+      renderDetail(force);
+      renderHistory(force);
+    }
+
+    function activeGameForJob() {
+      const job = state.job || {};
+      const activeId = String(job.activeId || '');
+      if (!activeId) return null;
+      return state.games.find((g) => g.activeOp && String(g.activeOp.id || '') === activeId) || null;
+    }
+
+    function updateActiveOperationVisual(visual) {
+      const g = activeGameForJob();
+      if (!g || !visual) return;
+      document.querySelectorAll('[data-active-op-chip="' + g.titleId + '"]').forEach((chip) => {
+        chip.className = 'chip ' + visual.className;
+        chip.textContent = visual.label;
+      });
+    }
+
+    function updateProgressOnly() {
+      const box = document.querySelector('.progress-box');
+      if (!box) return;
+      const label = box.querySelector('.progress-label');
+      let percent = box.querySelector('.progress-percent');
+      const fill = box.querySelector('.progress-fill');
+      const elapsed = box.querySelector('.progress-elapsed-value');
+      const speedRow = box.querySelector('.progress-speed');
+      const speed = box.querySelector('.progress-speed-value');
+      const remainingRow = box.querySelector('.progress-remaining');
+      const remaining = box.querySelector('.progress-remaining-value');
+      const progress = progressTiming();
+      const g = activeGameForJob();
+      const job = g && g.activeOp ? jobForOperation(g.activeOp) : null;
+      const visual = g && g.activeOp
+        ? operationVisual(g.activeOp, job)
+        : { label: 'Running', className: 'run' };
+      box.classList.remove('is-compressing', 'is-closing', 'is-mounting', 'is-validating', 'is-repacking',
+        'is-moving', 'is-unpacking', 'is-run');
+      box.classList.add('is-' + visual.className);
+      if (label) {
+        label.textContent = visual.label;
+      }
+      if (!visualShowsPercent(visual)) {
+        if (percent) percent.remove();
+      } else {
+        if (!percent && label && label.parentNode) {
+          percent = document.createElement('span');
+          percent.className = 'progress-percent';
+          label.parentNode.appendChild(percent);
+        }
+        if (percent) {
+          percent.style.display = '';
+          percent.textContent = progress.percent.toFixed(0) + '%';
+        }
+      }
+      if (fill) {
+        fill.style.width = progress.percent.toFixed(1) + '%';
+      }
+      const repairText = g && g.activeOp ? repairedBlocksText(g.activeOp, job) : '';
+      let repairCount = box.querySelector('.progress-repair-count');
+      if (repairText) {
+        if (!repairCount) {
+          repairCount = document.createElement('div');
+          repairCount.className = 'progress-repair-count';
+          const bar = box.querySelector('.bar');
+          if (bar) box.insertBefore(repairCount, bar);
+          else box.appendChild(repairCount);
+        }
+        repairCount.textContent = repairText;
+      } else if (repairCount) {
+        repairCount.remove();
+      }
+      if (elapsed) {
+        elapsed.textContent = progress.elapsedText;
+      }
+      const showThroughput = visualShowsThroughput(visual);
+      if (speedRow) {
+        speedRow.style.display = showThroughput ? '' : 'none';
+      }
+      if (remainingRow) {
+        remainingRow.style.display = showThroughput ? '' : 'none';
+      }
+      if (speed && showThroughput) {
+        speed.textContent = progress.speedText;
+      }
+      if (remaining && showThroughput) {
+        remaining.textContent = progress.remainingText;
+      }
+      updateActiveOperationVisual(visual);
+    }
+
+    async function refreshAll() {
+      if (refreshAllInFlight) return;
+      refreshAllInFlight = true;
+      try {
+        const [games, job, history] = await Promise.all([
+          api('/api/gc/games'),
+          api('/api/gc/job'),
+          api('/api/gc/history')
+        ]);
+        state.games = games.games || [];
+        state.job = job;
+        updateSpeedSample(job);
+        state.history = history.history || [];
+        if (!state.selected && state.games[0]) selectGame(state.games[0].titleId, false, false);
+        if (state.selected && !state.games.some((g) => g.titleId === state.selected) && state.games[0]) {
+          selectGame(state.games[0].titleId, true, false);
+        }
+        render();
+        updateProgressOnly();
+      } catch (err) {
+        state.renderKeys.list = '';
+        state.renderKeys.detail = '';
+        state.renderKeys.history = '';
+        $('detail').innerHTML = '<div class="empty">' + escapeHtml(err.message) + '</div>';
+      } finally {
+        refreshAllInFlight = false;
+      }
+    }
+
+    async function refreshJob() {
+      if (refreshJobInFlight) return;
+      refreshJobInFlight = true;
+      try {
+        const previousBusy = !!(state.job && state.job.busy);
+        const previousActiveId = state.job && state.job.activeId ? String(state.job.activeId) : '';
+        const job = await api('/api/gc/job');
+        const nextBusy = !!job.busy;
+        const nextActiveId = job.activeId ? String(job.activeId) : '';
+        state.job = job;
+        updateSpeedSample(job);
+        if (previousBusy !== nextBusy || previousActiveId !== nextActiveId) {
+          await refreshAll();
+          return;
+        }
+        if (nextBusy && !activeGameForJob()) {
+          await refreshAll();
+          return;
+        }
+        updateProgressOnly();
+      } catch (err) {
+        /* Keep the last rendered UI during transient polling errors. */
+      } finally {
+        refreshJobInFlight = false;
+      }
+    }
+
+    function renderUsbList() {
+      const body = $('usb-body');
+      if (!state.usb.length) {
+        body.innerHTML = '<div class="empty">No USB storage found</div>';
+        return;
+      }
+      body.innerHTML = state.usb.map((usb) => (
+        '<button class="usb-row" data-id="' + escapeHtml(usb.id) + '">' +
+          '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
+          '<div class="history-meta">' + escapeHtml(usb.path) + '</div>' +
+          '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes) + '</div></div>' +
+          '<span class="chip">Select</span>' +
+        '</button>'
+      )).join('');
+      body.querySelectorAll('.usb-row').forEach((row) => {
+        row.addEventListener('click', () => {
+          if (state.moveGame) startMoveToUsb(state.moveGame, row.getAttribute('data-id'));
+        });
+      });
+    }
+
+    async function showUsbModal(g) {
+      state.moveGame = g;
+      $('usb-title').textContent = 'Move ' + (g.name || g.titleId) + ' to USB';
+      $('usb-body').innerHTML = '<div class="empty">Loading USB storage</div>';
+      $('usb-modal').classList.remove('hidden');
+      try {
+        const data = await api('/api/gc/usb');
+        state.usb = data.usb || [];
+        renderUsbList();
+      } catch (err) {
+        $('usb-body').innerHTML = '<div class="empty">' + escapeHtml(err.message) + '</div>';
+      }
+    }
+
+    function closeUsbModal() {
+      $('usb-modal').classList.add('hidden');
+      state.moveGame = null;
+    }
+
+    function showCompressFormatModal(g) {
+      state.compressGame = g;
+      $('format-title').textContent = 'Compress ' + (g.name || g.titleId);
+      $('format-pfs-name').textContent = 'pfs_image.dat';
+      $('format-exfat-name').textContent = (g.titleId || '<TITLE_ID>') + '.exfat';
+      $('format-modal').classList.remove('hidden');
+    }
+
+    function closeCompressFormatModal() {
+      $('format-modal').classList.add('hidden');
+      state.compressGame = null;
+    }
+
+    async function startMove(url) {
+      try {
+        await api(url, { method: 'POST' });
+        closeUsbModal();
+        await refreshAll();
+      } catch (err) {
+        const data = err.data || {};
+        if (data.lowSpace) {
+          alert('Not enough free storage.\n\nFree ' + shortSize(data.extraBytes || 0) + ' more on the target storage.');
+        } else {
+          alert(err.message);
+        }
+      }
+    }
+
+    async function startMoveToUsb(g, usbId) {
+      if (!g || !usbId) return;
+      await startMove('/api/gc/move-to-usb?titleId=' + encodeURIComponent(g.titleId) +
+        '&usbId=' + encodeURIComponent(usbId));
+    }
+
+    async function startMoveToInternal(g) {
+      if (!g) return;
+      await startMove('/api/gc/move-to-internal?titleId=' + encodeURIComponent(g.titleId));
+    }
+
+    async function startSelectedCompress(format) {
+      const g = state.compressGame;
+      closeCompressFormatModal();
+      if (!g || (format !== 'pfs' && format !== 'exfat')) return;
+      await startAction(g, false, 'compress', format);
+    }
+
+    async function startAction(g, confirmStream, overrideAction, compressFormat) {
+      const action = overrideAction || actionFor(g);
+      if (!action) return;
+      if (action === 'compress' && !compressFormat) {
+        showCompressFormatModal(g);
+        return;
+      }
+      let url = '';
+      if (action === 'compress') {
+        url = '/api/gc/compress?titleId=' + encodeURIComponent(g.titleId) +
+          '&format=' + encodeURIComponent(compressFormat);
+      } else if (action === 'uncompress') {
+        url = '/api/gc/uncompress?titleId=' + encodeURIComponent(g.titleId);
+      } else {
+        url = '/api/gc/validate-repair?titleId=' + encodeURIComponent(g.titleId);
+      }
+      if (confirmStream) url += '&confirmStream=1';
+      try {
+        await api(url, { method: 'POST' });
+        await refreshAll();
+      } catch (err) {
+        const data = err.data || {};
+        if (data.lowSpace) {
+          const extra = shortSize(data.extraBytes || 0);
+          const base = 'Free ' + extra + ' more to keep the original untouched until the new file is complete.';
+          if (data.canStreamDelete) {
+            const msg = 'Not enough free storage for the safer path.\n\nDelete while processing can damage the original source if the operation stops.\n\n' + base;
+            if (confirm(msg)) {
+              await startAction(g, true, overrideAction, compressFormat);
+              return;
+            }
+          } else {
+            alert('Not enough free storage.\n\n' + base);
+          }
+        } else {
+          alert(err.message);
+        }
+      }
+    }
+
+    async function cancelPending(id) {
+      await api('/api/gc/queue/cancel?id=' + encodeURIComponent(id), { method: 'POST' }).catch((err) => alert(err.message));
+      await refreshAll();
+    }
+
+    async function cancelActiveJob() {
+      await api('/api/gc/job/cancel', { method: 'POST' }).catch((err) => alert(err.message));
+      await refreshAll();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      restoreSelectedGame();
+      $('info-top').innerHTML = icon('info');
+      $('history-top').innerHTML = icon('history');
+      $('info-close').innerHTML = icon('close');
+      $('history-close').innerHTML = icon('close');
+      $('usb-close').innerHTML = icon('close');
+      $('format-close').innerHTML = icon('close');
+
+      $('info-top').addEventListener('click', () => $('info-modal').classList.remove('hidden'));
+      $('info-close').addEventListener('click', () => $('info-modal').classList.add('hidden'));
+      $('history-top').addEventListener('click', () => $('history-modal').classList.remove('hidden'));
+      $('history-close').addEventListener('click', () => $('history-modal').classList.add('hidden'));
+      $('usb-close').addEventListener('click', closeUsbModal);
+      $('format-close').addEventListener('click', closeCompressFormatModal);
+      document.querySelectorAll('[data-compress-format]').forEach((button) => {
+        button.addEventListener('click', () => startSelectedCompress(button.getAttribute('data-compress-format')));
+      });
+      document.querySelectorAll('.modal-backdrop').forEach((modal) => {
+        modal.addEventListener('click', (event) => {
+          if (event.target !== modal) return;
+          if (modal.id === 'usb-modal') closeUsbModal();
+          else if (modal.id === 'format-modal') closeCompressFormatModal();
+          else modal.classList.add('hidden');
+        });
+      });
+      document.addEventListener('click', (event) => {
+        if (!state.secondaryMenuFor) return;
+        if (event.target.closest('.action-row')) return;
+        closeSecondaryMenu();
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeSecondaryMenu();
+      });
+
+      refreshAll();
+      setInterval(refreshJob, 1200);
+      setInterval(refreshAll, 10000);
+    });
+  </script>
+</body>
+</html>
