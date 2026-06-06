@@ -736,9 +736,28 @@
       font-weight: 680;
     }
 
-    .about-emoji {
+    .about-image-icon {
       display: inline-block;
-      margin: 0 3px;
+      width: 18px;
+      height: 18px;
+      margin: 0 4px;
+      vertical-align: -3px;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: contain;
+    }
+
+    .about-heart {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23e53935' d='M12 21s-6.9-4.35-9.4-8.7C.4 8.5 2.5 4 6.8 4c2.1 0 3.7 1.1 5.2 3 1.5-1.9 3.1-3 5.2-3 4.3 0 6.4 4.5 4.2 8.3C18.9 16.65 12 21 12 21z'/%3E%3C/svg%3E");
+    }
+
+    .about-palestine {
+      width: 23px;
+      height: 15px;
+      border-radius: 2px;
+      box-shadow: 0 0 0 1px rgba(17, 24, 39, .12);
+      vertical-align: -2px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 24'%3E%3Cpath fill='%23000' d='M0 0h36v8H0z'/%3E%3Cpath fill='%23fff' d='M0 8h36v8H0z'/%3E%3Cpath fill='%23009046' d='M0 16h36v8H0z'/%3E%3Cpath fill='%23ce1126' d='M0 0l15 12L0 24z'/%3E%3C/svg%3E");
     }
 
     .history-row {
@@ -953,7 +972,7 @@
         <div class="about-copy">
           <div class="about-main">Built by Juma Sayeh</div>
           <div class="about-sub">Tested by Osama Abualia</div>
-          <div class="about-made">Made with <span class="about-emoji">❤️</span> in <span class="about-emoji">🇵🇸</span></div>
+          <div class="about-made">Made with <span class="about-image-icon about-heart" role="img" aria-label="love"></span> in <span class="about-image-icon about-palestine" role="img" aria-label="Palestine"></span></div>
         </div>
       </div>
     </div>
