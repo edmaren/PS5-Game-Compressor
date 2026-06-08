@@ -1240,20 +1240,20 @@
         </div>
         <div class="format-section-title">Optimization</div>
         <div class="format-grid">
-          <button class="format-row" type="button" data-compress-profile="space">
-            <div>
-              <div class="history-title">Space optimized</div>
-              <div class="history-meta">zlib level 7; stores blocks only when savings are meaningful</div>
-            </div>
-            <span class="chip">Select</span>
-          </button>
-          <button class="format-row" type="button" data-compress-profile="fast">
-            <div>
-              <div class="history-title">Fast optimized</div>
-              <div class="history-meta">miniz best-speed; faster block deflate with a larger output</div>
-            </div>
-            <span class="chip">Select</span>
-          </button>
+	          <button class="format-row" type="button" data-compress-profile="space">
+	            <div>
+	              <div class="history-title">Zlib test</div>
+	              <div class="history-meta">1 read lane, 14 best-speed zlib workers, 1 write lane</div>
+	            </div>
+	            <span class="chip">Select</span>
+	          </button>
+	          <button class="format-row" type="button" data-compress-profile="fast">
+	            <div>
+	              <div class="history-title">Legacy fast</div>
+	              <div class="history-meta">Keeps the fast profile available for fallback and stream paths</div>
+	            </div>
+	            <span class="chip">Select</span>
+	          </button>
         </div>
         <div class="format-section-title">Storage Mode</div>
         <div class="format-grid">
@@ -1543,15 +1543,16 @@
 
 	    function progressUnits(job) {
 	      job = job || activeJob() || {};
-	      const phase = String(job.phase || '').toLowerCase();
-	      const totalBlocks = Number(job.totalBlocks || 0);
-	      const doneBlocks = Number(job.doneBlocks || 0);
+      const phase = String(job.phase || '').toLowerCase();
+      const totalBlocks = Number(job.totalBlocks || 0);
+      const doneBlocks = Number(job.doneBlocks || 0);
       if (phase === 'compressing' && totalBlocks > 0) {
+        const copiedBlocks = Math.floor(Math.max(0, Number(job.copiedBytes || 0)) / PFS_BLOCK_SIZE);
         return {
-          done: Math.max(0, Math.min(totalBlocks, doneBlocks)),
+          done: Math.max(0, Math.min(totalBlocks, Math.max(doneBlocks, copiedBlocks))),
           total: totalBlocks,
-	          countable: true
-	        };
+          countable: true
+        };
 	      }
 	      const total = Number(job.totalBytes || 0);
 	      const copied = Number(job.copiedBytes || 0);
@@ -2238,10 +2239,12 @@
 	      job = job || {};
 	      if (!progressIsCountable(job)) return 0;
 	      const phase = String(job.phase || '').toLowerCase();
-	      const totalBlocks = Math.max(0, Number(job.totalBlocks || 0));
-	      const doneBlocks = Math.max(0, Number(job.doneBlocks || 0));
+      const totalBlocks = Math.max(0, Number(job.totalBlocks || 0));
+      const doneBlocks = Math.max(0, Number(job.doneBlocks || 0));
       if (phase === 'compressing' && totalBlocks > 0) {
-        return Math.min(doneBlocks, totalBlocks) * PFS_BLOCK_SIZE;
+        const copiedBytes = Math.max(0, Number(job.copiedBytes || 0));
+        return Math.max(Math.min(doneBlocks, totalBlocks) * PFS_BLOCK_SIZE,
+          Math.min(copiedBytes, totalBlocks * PFS_BLOCK_SIZE));
       }
       return Math.max(0, Number(job.copiedBytes || 0));
     }

@@ -5289,7 +5289,10 @@ job_speed_metric_bytes(const char *verb, const char *phase, long copied,
   const char *p = phase ? phase : "";
 
   if(!strcmp(v, "compress")) {
-    if(compressed_output > 0) {
+    if(copied > 0) {
+      metric = copied;
+      source = "compressed-input";
+    } else if(compressed_output > 0) {
       metric = compressed_output;
       source = "compressed-output";
     } else {

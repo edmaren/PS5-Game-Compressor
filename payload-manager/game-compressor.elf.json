@@ -10,5 +10,5 @@
   "name": "Game Compressor",
   "filename": "game-compressor.elf",
   "description": "Standalone game compressor for ShadowMountPlus titles with compress, uncompress, validate and repair, history, and move actions.",
-  "checksum": "519f46d1efd89fbbf6d4752177dc7af7e1024b14c224b4f158e5e8fa617d9b5b"
+  "checksum": "9e587db8cf40617a285c153739e0b4e376a25202cabf0d999a9f917a0ed1e529"
 }
