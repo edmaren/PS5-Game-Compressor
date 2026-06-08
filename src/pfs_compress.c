@@ -5977,6 +5977,21 @@ pfs_compress_probed_to_ffpfsc_opts(pfs_app_info_t *info, int overwrite,
   close(fd);
   fd = -1;
 
+  if(info->source_type == PFS_COMPRESS_SOURCE_APP) {
+    job_set_current("Removing source app folder");
+    if(remove_tree_local(info->source_path) != 0 && errno != ENOENT) {
+      set_err(err, err_size, "remove source app folder: %s", strerror(errno));
+      goto done;
+    }
+  } else if(info->source_type == PFS_COMPRESS_SOURCE_IMAGE &&
+            delete_policy == PFS_DELETE_AFTER) {
+    job_set_current("Removing source image");
+    if(unlink(info->source_path) != 0 && errno != ENOENT) {
+      set_err(err, err_size, "remove source image: %s", strerror(errno));
+      goto done;
+    }
+  }
+
   if(rename(tmp_path, info->output_path) != 0) {
     set_err(err, err_size, "rename output: %s", strerror(errno));
     goto done;
@@ -5995,28 +6010,6 @@ pfs_compress_probed_to_ffpfsc_opts(pfs_app_info_t *info, int overwrite,
     }
   }
 
-  if(info->source_type == PFS_COMPRESS_SOURCE_APP &&
-     delete_policy == PFS_DELETE_STREAM) {
-    job_set_current("Removing source app folder");
-    if(remove_tree_local(info->source_path) != 0 && errno != ENOENT) {
-      set_err(err, err_size, "remove source app folder: %s", strerror(errno));
-      goto done;
-    }
-  } else if(info->source_type == PFS_COMPRESS_SOURCE_APP &&
-            delete_policy == PFS_DELETE_AFTER) {
-    job_set_current("Removing source app folder");
-    if(remove_tree_local(info->source_path) != 0 && errno != ENOENT) {
-      set_err(err, err_size, "remove source app folder: %s", strerror(errno));
-      goto done;
-    }
-  } else if(info->source_type == PFS_COMPRESS_SOURCE_IMAGE &&
-            delete_policy == PFS_DELETE_AFTER) {
-    job_set_current("Removing source image");
-    if(unlink(info->source_path) != 0 && errno != ENOENT) {
-      set_err(err, err_size, "remove source image: %s", strerror(errno));
-      goto done;
-    }
-  }
   if(destructive_stream && stream_ctx.journal_path[0]) {
     destructive_stream_remove_reverse_dir(&stream_ctx);
     unlink(stream_ctx.journal_path);
