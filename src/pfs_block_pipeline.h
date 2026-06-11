@@ -42,6 +42,10 @@ void pfs_stream_buffer_init(pfs_stream_buffer_t *b, size_t target_size,
 int pfs_stream_buffer_write(pfs_stream_buffer_t *b, int fd,
                             pfs_stream_write_fn write_fn,
                             const void *data, size_t size);
+unsigned char *pfs_stream_buffer_reserve(pfs_stream_buffer_t *b, int fd,
+                                         pfs_stream_write_fn write_fn,
+                                         size_t size);
+void pfs_stream_buffer_commit(pfs_stream_buffer_t *b, size_t size);
 int pfs_stream_buffer_flush(pfs_stream_buffer_t *b, int fd,
                             pfs_stream_write_fn write_fn);
 void pfs_stream_buffer_free(pfs_stream_buffer_t *b);

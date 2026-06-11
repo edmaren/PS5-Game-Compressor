@@ -24,6 +24,12 @@
 #include "pfs_block_pipeline.h"
 #include "pfs_compress.h"
 #include "transfer_internal.h"
+#if defined(GAME_COMPRESSOR_VERSION)
+#include "gc_diag.h"
+#define PFS_DECOMPRESS_LOG(...) gc_log(__VA_ARGS__)
+#else
+#define PFS_DECOMPRESS_LOG(...) do { } while(0)
+#endif
 
 #define PFS_BLOCK_SIZE 65536ULL
 #define PFS_INODE_SIZE 0xA8
@@ -46,20 +52,34 @@
 #define PFSC_OFFSET_ENTRY_SIZE 8
 
 #define PFSC_DECOMPRESS_SLOTS_PER_WORKER 32
-#define PFS_EXTRACT_OUTPUT_BUFFER_SIZE (16U * 1024U * 1024U)
+#define PFS_EXTRACT_OUTPUT_BUFFER_SIZE (64U * 1024U * 1024U)
 #define PFS_EXTRACT_OUTPUT_BUFFER_MIN_SIZE (64U * 1024U)
+#define PFS_IMAGE_OUTPUT_BUFFER_SIZE (128U * 1024U * 1024U)
+#define PFSC_OFFSET_READ_CHUNK_SIZE (1U * 1024U * 1024U)
+#define SHADOW_PFSC_BASE "/mnt/shadowmnt/pfsc"
 
 typedef struct pfsc_reader {
   int fd;
   uint64_t file_start;
   uint64_t logical_size;
+  uint64_t nested_size;
   uint64_t block_size;
   uint64_t block_count;
   char nested_name[256];
+  char mounted_path[1024];
   uint64_t *offsets;
   unsigned char *stored;
   unsigned char *block;
+  unsigned char *mounted_block;
+  unsigned char *last_mounted_block;
   uint64_t cached_index;
+  uint64_t last_mounted_index;
+  uint64_t mounted_stale_blocks;
+  uint64_t mounted_calibration_misses;
+  int mounted_fd;
+  int mounted_enabled;
+  int mounted_calibrated;
+  int mounted_has_last;
   int cache_valid;
 } pfsc_reader_t;
 
@@ -205,6 +225,29 @@ join_abs(char *out, size_t out_size, const char *dir, const char *name) {
   return 0;
 }
 
+static int
+hidden_tmp_path_for_output(const char *output_path, const char *tag,
+                           char *out, size_t out_size) {
+  char parent[1024];
+  char base[256];
+  const char *safe_tag = tag && tag[0] ? tag : "gc-temp";
+  if(!output_path || !output_path[0] || !out || out_size == 0) {
+    errno = EINVAL;
+    return -1;
+  }
+  if(path_parent_base(output_path, parent, sizeof(parent),
+                      base, sizeof(base)) != 0) {
+    return -1;
+  }
+  int n = snprintf(out, out_size, "%s%s.%s.%s.tmp",
+                   parent, parent[1] ? "/" : "", base, safe_tag);
+  if(n < 0 || (size_t)n >= out_size) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  return 0;
+}
+
 static uint16_t
 rd16(const unsigned char *p) {
   return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
@@ -318,6 +361,169 @@ saturating_add_u64(uint64_t a, uint64_t b) {
   return UINT64_MAX - a < b ? UINT64_MAX : a + b;
 }
 
+static uint32_t
+fnv1a32_string(const char *s) {
+  uint32_t h = 2166136261U;
+  while(s && *s) {
+    h ^= (uint8_t)*s++;
+    h *= 16777619U;
+  }
+  return h;
+}
+
+static int
+ffpfsc_stem_from_path(const char *path, const char **stem,
+                      size_t *stem_len) {
+  const char *name = strrchr(path ? path : "", '/');
+  name = name ? name + 1 : path;
+  if(!name || !*name || !ffpfsc_path_supported(name)) return -1;
+  size_t len = strlen(name);
+  size_t ext_len = strlen(".ffpfsc");
+  if(len <= ext_len) return -1;
+  if(stem) *stem = name;
+  if(stem_len) *stem_len = len - ext_len;
+  return 0;
+}
+
+static int
+shadowmount_pfsc_mount_dir(const char *source_path, char *out,
+                           size_t out_size) {
+  const char *stem = NULL;
+  size_t stem_len = 0;
+  char mount_name[1024];
+  if(ffpfsc_stem_from_path(source_path, &stem, &stem_len) != 0) return -1;
+  size_t max_stem = sizeof(mount_name) - 1U - 9U;
+  if(stem_len > max_stem) stem_len = max_stem;
+  int n = snprintf(mount_name, sizeof(mount_name), "%.*s_%08x",
+                   (int)stem_len, stem, fnv1a32_string(source_path));
+  if(n < 0 || (size_t)n >= sizeof(mount_name)) return -1;
+  n = snprintf(out, out_size, "%s/%s", SHADOW_PFSC_BASE, mount_name);
+  return n < 0 || (size_t)n >= out_size ? -1 : 0;
+}
+
+static int
+mounted_nested_path(const char *source_path, const char *nested_name,
+                    char *out, size_t out_size) {
+  char mount_dir[1024];
+  if(!nested_name || !path_segment_supported(nested_name)) return -1;
+  if(shadowmount_pfsc_mount_dir(source_path, mount_dir,
+                                sizeof(mount_dir)) != 0) {
+    return -1;
+  }
+  int n = snprintf(out, out_size, "%s/%s", mount_dir, nested_name);
+  return n < 0 || (size_t)n >= out_size ? -1 : 0;
+}
+
+static size_t
+pfsc_reader_block_useful_size(const pfsc_reader_t *r, uint64_t index) {
+  uint64_t off = index * PFS_BLOCK_SIZE;
+  if(!r || off >= r->nested_size) return 0;
+  uint64_t left = r->nested_size - off;
+  return left < PFS_BLOCK_SIZE ? (size_t)left : (size_t)PFS_BLOCK_SIZE;
+}
+
+static int
+read_mounted_block(int fd, unsigned char *out, size_t useful,
+                   uint64_t offset) {
+  size_t done = 0;
+  while(done < useful) {
+    ssize_t n = pread(fd, out + done, useful - done, (off_t)(offset + done));
+    if(n < 0) {
+      if(errno == EINTR) continue;
+      return -1;
+    }
+    if(n == 0) {
+      errno = EIO;
+      return -1;
+    }
+    done += (size_t)n;
+  }
+  if(useful < (size_t)PFS_BLOCK_SIZE) {
+    memset(out + useful, 0, (size_t)PFS_BLOCK_SIZE - useful);
+  }
+  return 0;
+}
+
+static void
+pfsc_reader_set_cache(pfsc_reader_t *r, uint64_t index) {
+  r->cached_index = index;
+  r->cache_valid = 1;
+}
+
+static void
+pfsc_reader_disable_mounted(pfsc_reader_t *r, const char *reason) {
+  if(!r || !r->mounted_enabled) return;
+  PFS_DECOMPRESS_LOG("decompress mounted fast path disabled path=%s reason=%s stale=%llu calibration_misses=%llu",
+                     r->mounted_path,
+                     reason ? reason : "unknown",
+                     (unsigned long long)r->mounted_stale_blocks,
+                     (unsigned long long)r->mounted_calibration_misses);
+  if(r->mounted_fd >= 0) {
+    close(r->mounted_fd);
+    r->mounted_fd = -1;
+  }
+  r->mounted_enabled = 0;
+  r->mounted_calibrated = 0;
+  r->mounted_has_last = 0;
+}
+
+static int
+pfsc_reader_try_open_mounted(pfsc_reader_t *r, const char *source_path) {
+  char mounted_path[1024];
+  struct stat st;
+  int fd = -1;
+
+  if(!r || r->mounted_enabled || r->mounted_fd >= 0) return 0;
+  if(mounted_nested_path(source_path, r->nested_name, mounted_path,
+                         sizeof(mounted_path)) != 0) {
+    PFS_DECOMPRESS_LOG("decompress mounted fast path unavailable source=%s nested=%s reason=path",
+                       source_path ? source_path : "",
+                       r->nested_name);
+    return 0;
+  }
+
+  fd = open(mounted_path, O_RDONLY);
+  if(fd < 0) {
+    PFS_DECOMPRESS_LOG("decompress mounted fast path unavailable path=%s reason=open:%s",
+                       mounted_path, strerror(errno));
+    return 0;
+  }
+  if(fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 ||
+     (uint64_t)st.st_size < r->nested_size) {
+    PFS_DECOMPRESS_LOG("decompress mounted fast path unavailable path=%s reason=size",
+                       mounted_path);
+    close(fd);
+    return 0;
+  }
+
+  r->mounted_block = malloc((size_t)r->block_size);
+  r->last_mounted_block = malloc((size_t)r->block_size);
+  if(!r->mounted_block || !r->last_mounted_block) {
+    free(r->mounted_block);
+    free(r->last_mounted_block);
+    r->mounted_block = NULL;
+    r->last_mounted_block = NULL;
+    close(fd);
+    PFS_DECOMPRESS_LOG("decompress mounted fast path unavailable path=%s reason=memory",
+                       mounted_path);
+    return 0;
+  }
+
+  r->mounted_fd = fd;
+  r->mounted_enabled = 1;
+  r->mounted_calibrated = 0;
+  r->mounted_has_last = 0;
+  r->mounted_stale_blocks = 0;
+  r->mounted_calibration_misses = 0;
+  r->last_mounted_index = UINT64_MAX;
+  snprintf(r->mounted_path, sizeof(r->mounted_path), "%s", mounted_path);
+  PFS_DECOMPRESS_LOG("decompress mounted fast path enabled path=%s nested_size=%llu blocks=%llu",
+                     r->mounted_path,
+                     (unsigned long long)r->nested_size,
+                     (unsigned long long)r->block_count);
+  return 0;
+}
+
 static void
 parse_inode_info(const unsigned char *data, pfs_inode_info_t *ino) {
   memset(ino, 0, sizeof(*ino));
@@ -332,60 +538,100 @@ parse_inode_info(const unsigned char *data, pfs_inode_info_t *ino) {
 static void
 pfsc_reader_close(pfsc_reader_t *r) {
   if(!r) return;
+  if(r->mounted_path[0]) {
+    PFS_DECOMPRESS_LOG("decompress mounted fast path summary path=%s enabled=%d calibrated=%d stale=%llu calibration_misses=%llu",
+                       r->mounted_path,
+                       r->mounted_enabled,
+                       r->mounted_calibrated,
+                       (unsigned long long)r->mounted_stale_blocks,
+                       (unsigned long long)r->mounted_calibration_misses);
+  }
   if(r->fd >= 0) close(r->fd);
+  if(r->mounted_fd >= 0) close(r->mounted_fd);
   free(r->offsets);
   free(r->stored);
   free(r->block);
+  free(r->mounted_block);
+  free(r->last_mounted_block);
   memset(r, 0, sizeof(*r));
   r->fd = -1;
+  r->mounted_fd = -1;
 }
 
 static int
 pfsc_reader_load_offsets(pfsc_reader_t *r, uint64_t table_offset,
                          char *err, size_t err_size) {
   uint64_t count = r->block_count + 1;
+  size_t chunk_entries = PFSC_OFFSET_READ_CHUNK_SIZE / PFSC_OFFSET_ENTRY_SIZE;
+  unsigned char *chunk = NULL;
+  if(count > (uint64_t)SIZE_MAX / PFSC_OFFSET_ENTRY_SIZE) {
+    set_err(err, err_size, "PFSC offset table is too large");
+    errno = EINVAL;
+    return -1;
+  }
   r->offsets = calloc((size_t)count, sizeof(*r->offsets));
   if(!r->offsets) {
     set_err(err, err_size, "out of memory");
     errno = ENOMEM;
     return -1;
   }
-  unsigned char raw[8];
-  for(uint64_t i = 0; i < count; i++) {
-    if(read_exact_at(r->fd, raw, sizeof(raw),
-                     (off_t)(r->file_start + table_offset + i * 8)) != 0) {
+  if(chunk_entries == 0) chunk_entries = 1;
+  chunk = malloc(chunk_entries * PFSC_OFFSET_ENTRY_SIZE);
+  if(!chunk) {
+    set_err(err, err_size, "out of memory");
+    errno = ENOMEM;
+    return -1;
+  }
+
+  for(uint64_t i = 0; i < count;) {
+    size_t entries = count - i > (uint64_t)chunk_entries
+        ? chunk_entries
+        : (size_t)(count - i);
+    size_t bytes = entries * PFSC_OFFSET_ENTRY_SIZE;
+    if(read_exact_at(r->fd, chunk, bytes,
+                     (off_t)(r->file_start + table_offset +
+                             i * PFSC_OFFSET_ENTRY_SIZE)) != 0) {
       set_err(err, err_size, "read PFSC offsets: %s", strerror(errno));
+      free(chunk);
       return -1;
     }
-    r->offsets[i] = rd64(raw);
-    if(i > 0 && r->offsets[i] < r->offsets[i - 1]) {
-      set_err(err, err_size, "PFSC offsets are not monotonic");
-      errno = EINVAL;
-      return -1;
+    for(size_t j = 0; j < entries; j++, i++) {
+      r->offsets[i] = rd64(chunk + j * PFSC_OFFSET_ENTRY_SIZE);
+      if(i > 0 && r->offsets[i] < r->offsets[i - 1]) {
+        set_err(err, err_size, "PFSC offsets are not monotonic");
+        errno = EINVAL;
+        free(chunk);
+        return -1;
+      }
     }
   }
+  free(chunk);
   return 0;
 }
 
 static void
 pfsc_reader_read_outer_nested_name(int fd, pfsc_reader_t *r) {
   unsigned char inode[PFS_INODE_SIZE];
-  unsigned char dir_block[PFS_BLOCK_SIZE];
+  unsigned char *dir_block = NULL;
   pfs_inode_info_t root;
 
   snprintf(r->nested_name, sizeof(r->nested_name), "pfs_image.dat");
+  dir_block = malloc((size_t)PFS_BLOCK_SIZE);
+  if(!dir_block) {
+    return;
+  }
   if(read_exact_at(fd, inode, sizeof(inode),
                    (off_t)(PFS_BLOCK_SIZE + 2 * PFS_INODE_SIZE)) != 0) {
-    return;
+    goto done;
   }
   parse_inode_info(inode, &root);
   if((root.mode & PFS_INODE_MODE_DIR) == 0 || root.db0 < 0 ||
      root.size == 0 || root.size > PFS_BLOCK_SIZE) {
-    return;
+    goto done;
   }
   if(read_exact_at(fd, dir_block, (size_t)root.size,
                    (off_t)((uint64_t)root.db0 * PFS_BLOCK_SIZE)) != 0) {
-    return;
+    goto done;
   }
   for(uint64_t off = 0; off + 16 <= root.size;) {
     uint32_t child_inode = rd32(dir_block + off + 0);
@@ -402,10 +648,13 @@ pfsc_reader_read_outer_nested_name(int fd, pfsc_reader_t *r) {
     if(child_inode == 3 && type == PFS_DIRENT_TYPE_FILE) {
       memcpy(r->nested_name, dir_block + off + 16, name_len);
       r->nested_name[name_len] = 0;
-      return;
+      goto done;
     }
     off += ent_size;
   }
+
+done:
+  free(dir_block);
 }
 
 static int
@@ -422,7 +671,9 @@ pfsc_reader_open_from_outer(int fd, pfsc_reader_t *r,
 
   memset(r, 0, sizeof(*r));
   r->fd = -1;
+  r->mounted_fd = -1;
   r->cached_index = UINT64_MAX;
+  r->last_mounted_index = UINT64_MAX;
   snprintf(r->nested_name, sizeof(r->nested_name), "pfs_image.dat");
 
   header = malloc((size_t)PFS_BLOCK_SIZE);
@@ -465,6 +716,7 @@ pfsc_reader_open_from_outer(int fd, pfsc_reader_t *r,
 
   r->fd = fd;
   r->file_start = (uint64_t)outer_file.db0 * PFS_BLOCK_SIZE;
+  r->nested_size = outer_file.size_comp;
   stored_size = outer_file.size;
 
   unsigned char pfsc[PFSC_HEADER_SIZE];
@@ -538,24 +790,28 @@ done:
     free(r->offsets);
     free(r->stored);
     free(r->block);
+    free(r->mounted_block);
+    free(r->last_mounted_block);
     r->offsets = NULL;
     r->stored = NULL;
     r->block = NULL;
+    r->mounted_block = NULL;
+    r->last_mounted_block = NULL;
     r->fd = -1;
+    r->mounted_fd = -1;
   }
   return rc;
 }
 
 static int
-pfsc_reader_decode_block(pfsc_reader_t *r, uint64_t index,
-                         char *err, size_t err_size) {
+pfsc_reader_decode_block_software(pfsc_reader_t *r, uint64_t index,
+                                  unsigned char *out,
+                                  char *err, size_t err_size) {
   if(index >= r->block_count) {
     set_err(err, err_size, "PFSC read outside logical image");
     errno = EINVAL;
     return -1;
   }
-  if(r->cache_valid && r->cached_index == index) return 0;
-
   uint64_t start = r->offsets[index];
   uint64_t end = r->offsets[index + 1];
   if(end < start || end - start > r->block_size) {
@@ -570,10 +826,10 @@ pfsc_reader_decode_block(pfsc_reader_t *r, uint64_t index,
     return -1;
   }
   if(stored_len == (size_t)r->block_size) {
-    memcpy(r->block, r->stored, stored_len);
+    memcpy(out, r->stored, stored_len);
   } else {
     size_t out_len = tinfl_decompress_mem_to_mem(
-        r->block, (size_t)r->block_size, r->stored, stored_len,
+        out, (size_t)r->block_size, r->stored, stored_len,
         TINFL_FLAG_PARSE_ZLIB_HEADER);
     if(out_len != (size_t)r->block_size) {
       set_err(err, err_size, "decompress PFSC block failed");
@@ -581,9 +837,200 @@ pfsc_reader_decode_block(pfsc_reader_t *r, uint64_t index,
       return -1;
     }
   }
-  r->cached_index = index;
-  r->cache_valid = 1;
   return 0;
+}
+
+static int
+pfsc_reader_read_mounted_checked(pfsc_reader_t *r, uint64_t index) {
+  size_t useful = pfsc_reader_block_useful_size(r, index);
+  if(read_mounted_block(r->mounted_fd, r->mounted_block, useful,
+                        index * PFS_BLOCK_SIZE) != 0) {
+    return -1;
+  }
+  atomic_fetch_add(&g_job.hash_checked_blocks, 1);
+  return 0;
+}
+
+static int
+pfsc_reader_decode_block_mounted(pfsc_reader_t *r, uint64_t index,
+                                 char *err, size_t err_size) {
+  if(!r->mounted_calibrated) {
+    if(pfsc_reader_decode_block_software(r, index, r->block,
+                                         err, err_size) != 0) {
+      return -1;
+    }
+    atomic_fetch_add(&g_job.software_compared_blocks, 1);
+    if(pfsc_reader_read_mounted_checked(r, index) != 0) {
+      pfsc_reader_disable_mounted(r, "mounted read failed during calibration");
+      pfsc_reader_set_cache(r, index);
+      return 0;
+    }
+    if(memcmp(r->block, r->mounted_block, (size_t)r->block_size) == 0) {
+      memcpy(r->last_mounted_block, r->mounted_block, (size_t)r->block_size);
+      r->last_mounted_index = index;
+      r->mounted_has_last = 1;
+      r->mounted_calibrated = 1;
+      atomic_fetch_add(&g_job.hash_matched_blocks, 1);
+      PFS_DECOMPRESS_LOG("decompress mounted fast path calibrated path=%s block=%llu",
+                         r->mounted_path, (unsigned long long)index);
+    } else {
+      r->mounted_calibration_misses++;
+      if(r->mounted_calibration_misses == 1 ||
+         (r->mounted_calibration_misses % 256ULL) == 0) {
+        PFS_DECOMPRESS_LOG("decompress mounted fast path calibration miss path=%s block=%llu misses=%llu",
+                           r->mounted_path,
+                           (unsigned long long)index,
+                           (unsigned long long)r->mounted_calibration_misses);
+      }
+    }
+    pfsc_reader_set_cache(r, index);
+    return 0;
+  }
+
+  if(pfsc_reader_read_mounted_checked(r, index) != 0) {
+    pfsc_reader_disable_mounted(r, "mounted read failed");
+    if(pfsc_reader_decode_block_software(r, index, r->block,
+                                         err, err_size) != 0) {
+      return -1;
+    }
+    atomic_fetch_add(&g_job.software_compared_blocks, 1);
+    pfsc_reader_set_cache(r, index);
+    return 0;
+  }
+
+  if(r->mounted_has_last &&
+     memcmp(r->mounted_block, r->last_mounted_block,
+            (size_t)r->block_size) == 0) {
+    r->mounted_stale_blocks++;
+    atomic_fetch_add(&g_job.hash_mismatched_blocks, 1);
+    if(pfsc_reader_decode_block_software(r, index, r->block,
+                                         err, err_size) != 0) {
+      return -1;
+    }
+    atomic_fetch_add(&g_job.software_compared_blocks, 1);
+    if(r->mounted_stale_blocks == 1 ||
+       (r->mounted_stale_blocks % 256ULL) == 0) {
+      PFS_DECOMPRESS_LOG("decompress mounted fast path stale block path=%s block=%llu stale=%llu last_valid=%llu",
+                         r->mounted_path,
+                         (unsigned long long)index,
+                         (unsigned long long)r->mounted_stale_blocks,
+                         (unsigned long long)r->last_mounted_index);
+    }
+  } else {
+    memcpy(r->block, r->mounted_block, (size_t)r->block_size);
+    memcpy(r->last_mounted_block, r->mounted_block, (size_t)r->block_size);
+    r->last_mounted_index = index;
+    r->mounted_has_last = 1;
+    atomic_fetch_add(&g_job.hash_matched_blocks, 1);
+  }
+  pfsc_reader_set_cache(r, index);
+  return 0;
+}
+
+static int
+pfsc_reader_decode_block(pfsc_reader_t *r, uint64_t index,
+                         char *err, size_t err_size) {
+  if(index >= r->block_count) {
+    set_err(err, err_size, "PFSC read outside logical image");
+    errno = EINVAL;
+    return -1;
+  }
+  if(r->cache_valid && r->cached_index == index) return 0;
+  if(r->mounted_enabled) {
+    return pfsc_reader_decode_block_mounted(r, index, err, err_size);
+  }
+  if(pfsc_reader_decode_block_software(r, index, r->block,
+                                       err, err_size) != 0) {
+    return -1;
+  }
+  pfsc_reader_set_cache(r, index);
+  return 0;
+}
+
+static int
+pfsc_reader_decode_block_direct(pfsc_reader_t *r, uint64_t index,
+                                unsigned char *out,
+                                char *err, size_t err_size) {
+  if(index >= r->block_count) {
+    set_err(err, err_size, "PFSC read outside logical image");
+    errno = EINVAL;
+    return -1;
+  }
+
+  if(r->mounted_enabled) {
+    if(!r->mounted_calibrated) {
+      if(pfsc_reader_decode_block_software(r, index, out,
+                                           err, err_size) != 0) {
+        return -1;
+      }
+      atomic_fetch_add(&g_job.software_compared_blocks, 1);
+      if(pfsc_reader_read_mounted_checked(r, index) != 0) {
+        pfsc_reader_disable_mounted(r,
+                                    "mounted read failed during calibration");
+        return 0;
+      }
+      if(memcmp(out, r->mounted_block, (size_t)r->block_size) == 0) {
+        memcpy(r->last_mounted_block, r->mounted_block,
+               (size_t)r->block_size);
+        r->last_mounted_index = index;
+        r->mounted_has_last = 1;
+        r->mounted_calibrated = 1;
+        atomic_fetch_add(&g_job.hash_matched_blocks, 1);
+        PFS_DECOMPRESS_LOG("decompress mounted fast path calibrated path=%s block=%llu",
+                           r->mounted_path, (unsigned long long)index);
+      } else {
+        r->mounted_calibration_misses++;
+        if(r->mounted_calibration_misses == 1 ||
+           (r->mounted_calibration_misses % 256ULL) == 0) {
+          PFS_DECOMPRESS_LOG("decompress mounted fast path calibration miss path=%s block=%llu misses=%llu",
+                             r->mounted_path,
+                             (unsigned long long)index,
+                             (unsigned long long)r->mounted_calibration_misses);
+        }
+      }
+      return 0;
+    }
+
+    if(pfsc_reader_read_mounted_checked(r, index) != 0) {
+      pfsc_reader_disable_mounted(r, "mounted read failed");
+      if(pfsc_reader_decode_block_software(r, index, out,
+                                           err, err_size) != 0) {
+        return -1;
+      }
+      atomic_fetch_add(&g_job.software_compared_blocks, 1);
+      return 0;
+    }
+
+    if(r->mounted_has_last &&
+       memcmp(r->mounted_block, r->last_mounted_block,
+              (size_t)r->block_size) == 0) {
+      r->mounted_stale_blocks++;
+      atomic_fetch_add(&g_job.hash_mismatched_blocks, 1);
+      if(pfsc_reader_decode_block_software(r, index, out,
+                                           err, err_size) != 0) {
+        return -1;
+      }
+      atomic_fetch_add(&g_job.software_compared_blocks, 1);
+      if(r->mounted_stale_blocks == 1 ||
+         (r->mounted_stale_blocks % 256ULL) == 0) {
+        PFS_DECOMPRESS_LOG("decompress mounted fast path stale block path=%s block=%llu stale=%llu last_valid=%llu",
+                           r->mounted_path,
+                           (unsigned long long)index,
+                           (unsigned long long)r->mounted_stale_blocks,
+                           (unsigned long long)r->last_mounted_index);
+      }
+    } else {
+      memcpy(out, r->mounted_block, (size_t)r->block_size);
+      memcpy(r->last_mounted_block, r->mounted_block,
+             (size_t)r->block_size);
+      r->last_mounted_index = index;
+      r->mounted_has_last = 1;
+      atomic_fetch_add(&g_job.hash_matched_blocks, 1);
+    }
+    return 0;
+  }
+
+  return pfsc_reader_decode_block_software(r, index, out, err, err_size);
 }
 
 static int
@@ -611,22 +1058,61 @@ pfsc_reader_read(pfsc_reader_t *r, uint64_t offset, void *out, size_t size,
 }
 
 static int
+pfsc_reader_write_buffered_range(pfsc_reader_t *r, uint64_t offset,
+                                 size_t size, pfs_stream_buffer_t *outbuf,
+                                 int out, unsigned char *fallback,
+                                 char *err, size_t err_size) {
+  if(size == 0) return 0;
+  if(size <= (size_t)r->block_size &&
+     (offset % r->block_size) == 0) {
+    unsigned char *dst = pfs_stream_buffer_reserve(
+        outbuf, out, write_all_fd, (size_t)r->block_size);
+    if(dst) {
+      if(pfsc_reader_decode_block_direct(r, offset / r->block_size,
+                                         dst, err, err_size) != 0) {
+        return -1;
+      }
+      pfs_stream_buffer_commit(outbuf, size);
+      return 0;
+    }
+  }
+  if(pfsc_reader_read(r, offset, fallback, size, err, err_size) != 0 ||
+     pfs_stream_buffer_write(outbuf, out, write_all_fd,
+                             fallback, size) != 0) {
+    if(!err[0]) set_err(err, err_size, "write output file: %s", strerror(errno));
+    return -1;
+  }
+  return 0;
+}
+
+static int
 pfsc_reader_detect_nested_type(pfsc_reader_t *r,
                                char *err, size_t err_size) {
-  unsigned char header[PFS_BLOCK_SIZE];
-  if(pfsc_reader_read(r, 0, header, sizeof(header), err, err_size) != 0) {
+  unsigned char *header = malloc((size_t)PFS_BLOCK_SIZE);
+  int nested_type = PFS_NESTED_UNKNOWN;
+  if(!header) {
+    set_err(err, err_size, "out of memory");
+    errno = ENOMEM;
     return PFS_NESTED_UNKNOWN;
+  }
+  if(pfsc_reader_read(r, 0, header, (size_t)PFS_BLOCK_SIZE,
+                      err, err_size) != 0) {
+    goto done;
   }
   if(rd64(header + 0x00) == (uint64_t)PFS_VERSION_PS5 &&
      rd64(header + 0x08) == (uint64_t)PFS_MAGIC) {
-    return PFS_NESTED_PFS;
+    nested_type = PFS_NESTED_PFS;
+    goto done;
   }
   if(memcmp(header + 3, "EXFAT   ", 8) == 0) {
-    return PFS_NESTED_EXFAT;
+    nested_type = PFS_NESTED_EXFAT;
+    goto done;
   }
   set_err(err, err_size, "unsupported nested image type");
   errno = EINVAL;
-  return PFS_NESTED_UNKNOWN;
+done:
+  free(header);
+  return nested_type;
 }
 
 static void
@@ -664,6 +1150,7 @@ pfs_nested_open(const char *path, pfs_nested_reader_t *nr,
     goto done;
   }
   fd = -1;
+  if(!writable) pfsc_reader_try_open_mounted(&nr->pfsc, path);
 
   if(pfsc_reader_read(&nr->pfsc, 0, header, (size_t)PFS_BLOCK_SIZE,
                       err, err_size) != 0) {
@@ -810,10 +1297,12 @@ static int pfs_count_dir(pfs_nested_reader_t *nr, uint32_t inode_num,
                          char *err, size_t err_size);
 static int pfs_extract_file(pfs_nested_reader_t *nr, uint32_t inode_num,
                             const char *out_path, const char *rel,
-                            int workers, char *err, size_t err_size);
+                            int workers, int sync_file,
+                            char *err, size_t err_size);
 static int pfs_extract_dir(pfs_nested_reader_t *nr, uint32_t inode_num,
                            const char *out_dir, const char *rel,
-                           int workers, char *err, size_t err_size);
+                           int workers, int sync_files,
+                           char *err, size_t err_size);
 
 static void
 pfs_extract_plan_free(pfs_extract_plan_t *plan) {
@@ -1090,7 +1579,7 @@ pfs_extract_reverse_plan(pfs_nested_reader_t *nr, pfs_extract_plan_t *plan,
         return -1;
       }
       if(pfs_extract_file(nr, e->inode_num, e->out_path, e->rel,
-                          workers, err, err_size) != 0) {
+                          workers, 1, err, err_size) != 0) {
         return -1;
       }
       if(e->block_count > 0) truncate_group = 1;
@@ -1265,6 +1754,13 @@ pfs_extract_file_serial(pfs_nested_reader_t *nr, const pfs_inode_info_t *ino,
     errno = ENOMEM;
     return -1;
   }
+  if(ino->db0 < 0) {
+    pfs_stream_buffer_free(&outbuf);
+    free(buf);
+    set_err(err, err_size, "file payload outside nested image");
+    errno = EINVAL;
+    return -1;
+  }
 
   for(uint64_t off = 0; off < ino->size;) {
     if(job_cancelled()) {
@@ -1275,10 +1771,10 @@ pfs_extract_file_serial(pfs_nested_reader_t *nr, const pfs_inode_info_t *ino,
     size_t n = ino->size - off > PFS_BLOCK_SIZE
                    ? (size_t)PFS_BLOCK_SIZE
                    : (size_t)(ino->size - off);
-    if(pfs_nested_read_inode_data(nr, ino, off, buf, n,
-                                  err, err_size) != 0 ||
-       pfs_stream_buffer_write(&outbuf, out, write_all_fd, buf, n) != 0) {
-      if(!err[0]) set_err(err, err_size, "write output file: %s", strerror(errno));
+    uint64_t image_off = (uint64_t)ino->db0 * nr->block_size + off;
+    if(pfsc_reader_write_buffered_range(&nr->pfsc, image_off, n,
+                                        &outbuf, out, buf,
+                                        err, err_size) != 0) {
       goto done;
     }
     off += n;
@@ -1319,6 +1815,9 @@ pfs_extract_file_parallel(pfs_nested_reader_t *nr, const pfs_inode_info_t *ino,
     set_err(err, err_size, "file payload outside nested image");
     errno = EINVAL;
     return -1;
+  }
+  if(nr->pfsc.mounted_enabled) {
+    return pfs_extract_file_serial(nr, ino, out, err, err_size);
   }
 
   if(worker_count <= 0) worker_count = PFS_COMPRESS_DEFAULT_WORKERS;
@@ -1466,7 +1965,7 @@ done:
 static int
 pfs_extract_file(pfs_nested_reader_t *nr, uint32_t inode_num,
                  const char *out_path, const char *rel, int workers,
-                 char *err, size_t err_size) {
+                 int sync_file, char *err, size_t err_size) {
   pfs_inode_info_t ino;
   int out = -1;
   int rc = -1;
@@ -1489,7 +1988,7 @@ pfs_extract_file(pfs_nested_reader_t *nr, uint32_t inode_num,
     goto done;
   }
   chmod(out_path, 0777);
-  if(fsync(out) != 0) {
+  if(sync_file && fsync(out) != 0) {
     set_err(err, err_size, "sync output file: %s", strerror(errno));
     goto done;
   }
@@ -1505,7 +2004,7 @@ done:
 static int
 pfs_extract_dir(pfs_nested_reader_t *nr, uint32_t inode_num,
                 const char *out_dir, const char *rel, int workers,
-                char *err, size_t err_size) {
+                int sync_files, char *err, size_t err_size) {
   pfs_inode_info_t dir_ino;
   if(pfs_nested_read_inode(nr, inode_num, &dir_ino, err, err_size) != 0) {
     return -1;
@@ -1561,12 +2060,12 @@ pfs_extract_dir(pfs_nested_reader_t *nr, uint32_t inode_num,
       }
       if(type == PFS_DIRENT_TYPE_DIRECTORY) {
         if(pfs_extract_dir(nr, child_inode, child_out, child_rel, workers,
-                           err, err_size) != 0) {
+                           sync_files, err, err_size) != 0) {
           return -1;
         }
       } else if(type == PFS_DIRENT_TYPE_FILE) {
         if(pfs_extract_file(nr, child_inode, child_out, child_rel, workers,
-                            err, err_size) != 0) {
+                            sync_files, err, err_size) != 0) {
           return -1;
         }
       } else {
@@ -1709,6 +2208,7 @@ exfat_reader_open(const char *path, exfat_reader_t *er, int writable,
     return -1;
   }
   fd = -1;
+  if(!writable) pfsc_reader_try_open_mounted(&er->pfsc, path);
 
   if(pfsc_reader_read(&er->pfsc, 0, boot, sizeof(boot), err, err_size) != 0) {
     goto done;
@@ -1926,7 +2426,7 @@ exfat_collect_dir(exfat_reader_t *er, uint32_t first_cluster,
 
 static int
 exfat_extract_file(exfat_reader_t *er, const pfs_extract_entry_t *e,
-                   char *err, size_t err_size) {
+                   int sync_file, char *err, size_t err_size) {
   unsigned char *buf = malloc((size_t)PFS_BLOCK_SIZE);
   pfs_stream_buffer_t outbuf;
   int out = -1;
@@ -1955,10 +2455,9 @@ exfat_extract_file(exfat_reader_t *er, const pfs_extract_entry_t *e,
     size_t n = e->size - off > PFS_BLOCK_SIZE
       ? (size_t)PFS_BLOCK_SIZE
       : (size_t)(e->size - off);
-    if(pfsc_reader_read(&er->pfsc, e->image_offset + off, buf, n,
-                        err, err_size) != 0 ||
-       pfs_stream_buffer_write(&outbuf, out, write_all_fd, buf, n) != 0) {
-      if(!err[0]) set_err(err, err_size, "write output file: %s", strerror(errno));
+    if(pfsc_reader_write_buffered_range(&er->pfsc, e->image_offset + off,
+                                        n, &outbuf, out, buf,
+                                        err, err_size) != 0) {
       goto done;
     }
     off += n;
@@ -1970,7 +2469,7 @@ exfat_extract_file(exfat_reader_t *er, const pfs_extract_entry_t *e,
     goto done;
   }
   chmod(e->out_path, 0777);
-  if(fsync(out) != 0) {
+  if(sync_file && fsync(out) != 0) {
     set_err(err, err_size, "sync output file: %s", strerror(errno));
     goto done;
   }
@@ -2036,7 +2535,7 @@ exfat_extract_plan(exfat_reader_t *er, pfs_extract_plan_t *plan,
         errno = EINTR;
         return -1;
       }
-      if(exfat_extract_file(er, &plan->items[i], err, err_size) != 0) {
+      if(exfat_extract_file(er, &plan->items[i], 1, err, err_size) != 0) {
         return -1;
       }
       if(plan->items[i].block_count > 0) truncate_group = 1;
@@ -2139,6 +2638,7 @@ pfs_decompress_detect_nested(const char *path, pfs_decompress_info_t *info,
   info->nested_type = pfsc_reader_detect_nested_type(&reader, err, err_size);
   snprintf(info->nested_name, sizeof(info->nested_name), "%s",
            reader.nested_name);
+  info->nested_size = reader.nested_size;
   if(info->nested_type == PFS_NESTED_UNKNOWN) goto done;
   rc = 0;
 
@@ -2148,9 +2648,323 @@ done:
   return rc;
 }
 
+static int
+pfs_decompress_set_image_output_path(pfs_decompress_info_t *info,
+                                     char *err, size_t err_size) {
+  char parent[1024];
+  char base[256];
+  char stem[256];
+  struct stat st;
+  if(!info || !info->source_path[0]) {
+    set_err(err, err_size, "bad image path");
+    errno = EINVAL;
+    return -1;
+  }
+  if(info->nested_type != PFS_NESTED_PFS &&
+     info->nested_type != PFS_NESTED_EXFAT) {
+    set_err(err, err_size, "unsupported nested image type");
+    errno = EINVAL;
+    return -1;
+  }
+  if(path_parent_base(info->source_path, parent, sizeof(parent),
+                      base, sizeof(base)) != 0) {
+    set_err(err, err_size, "bad image path");
+    return -1;
+  }
+  size_t base_len = strlen(base);
+  size_t ext_len = strlen(".ffpfsc");
+  if(base_len <= ext_len || base_len - ext_len >= sizeof(stem)) {
+    set_err(err, err_size, "bad image name");
+    errno = EINVAL;
+    return -1;
+  }
+  memcpy(stem, base, base_len - ext_len);
+  stem[base_len - ext_len] = 0;
+  const char *ext = info->nested_type == PFS_NESTED_EXFAT ? ".exfat" : ".pfs";
+  int n = snprintf(info->output_path, sizeof(info->output_path), "%s%s%s%s",
+                   parent, parent[1] ? "/" : "", stem, ext);
+  if(n < 0 || (size_t)n >= sizeof(info->output_path)) {
+    set_err(err, err_size, "output path too long");
+    return -1;
+  }
+  info->output_exists = stat(info->output_path, &st) == 0;
+  return 0;
+}
+
+static int
+pfs_decompress_apply_output_path(pfs_decompress_info_t *info,
+                                 const char *output_path,
+                                 char *err, size_t err_size) {
+  char clean[1024];
+  struct stat st;
+  if(!output_path || !output_path[0]) return 0;
+  if(normalize_app_path(output_path, clean, sizeof(clean)) != 0) {
+    set_err(err, err_size, "bad output path");
+    return -1;
+  }
+  snprintf(info->output_path, sizeof(info->output_path), "%s", clean);
+  info->output_exists = stat(info->output_path, &st) == 0;
+  return 0;
+}
+
 int
-pfs_decompress_ffpfsc_to_app_opts(const char *path, int overwrite, int workers,
-                                  int delete_policy,
+pfs_decompress_probe_image(const char *path, pfs_decompress_info_t *info,
+                           char *err, size_t err_size) {
+  pfs_decompress_info_t local_info;
+  if(!info) info = &local_info;
+  if(pfs_decompress_detect_nested(path, info, err, err_size) != 0) {
+    return -1;
+  }
+  return pfs_decompress_set_image_output_path(info, err, err_size);
+}
+
+static unsigned char *
+pfs_alloc_image_buffer(size_t *size_out) {
+  size_t size = PFS_IMAGE_OUTPUT_BUFFER_SIZE;
+  while(size >= (size_t)PFS_BLOCK_SIZE) {
+    unsigned char *buf = malloc(size);
+    if(buf) {
+      if(size_out) *size_out = size;
+      return buf;
+    }
+    size /= 2;
+  }
+  if(size_out) *size_out = 0;
+  return NULL;
+}
+
+static int
+pfsc_reader_write_image_to_fd(pfsc_reader_t *r, int out,
+                              char *err, size_t err_size) {
+  size_t buffer_size = 0;
+  unsigned char *buffer = pfs_alloc_image_buffer(&buffer_size);
+  size_t used = 0;
+  uint64_t copied = 0;
+  uint64_t index = 0;
+  int rc = -1;
+
+  if(!buffer) {
+    set_err(err, err_size, "out of memory");
+    errno = ENOMEM;
+    return -1;
+  }
+
+  while(copied < r->nested_size) {
+    if(job_cancelled()) {
+      set_err(err, err_size, "cancelled");
+      errno = EINTR;
+      goto done;
+    }
+    size_t useful = pfsc_reader_block_useful_size(r, index);
+    if(useful == 0) break;
+    if(used + (size_t)r->block_size > buffer_size) {
+      if(write_all_fd(out, buffer, used) != 0) {
+        set_err(err, err_size, "write output image: %s", strerror(errno));
+        goto done;
+      }
+      used = 0;
+    }
+    if(pfsc_reader_decode_block_direct(r, index, buffer + used,
+                                       err, err_size) != 0) {
+      goto done;
+    }
+    used += useful;
+    copied += useful;
+    index++;
+    atomic_fetch_add(&g_job.copied_bytes,
+                     useful > (size_t)LONG_MAX ? LONG_MAX : (long)useful);
+  }
+
+  if(used > 0 && write_all_fd(out, buffer, used) != 0) {
+    set_err(err, err_size, "write output image: %s", strerror(errno));
+    goto done;
+  }
+  rc = 0;
+
+done:
+  free(buffer);
+  return rc;
+}
+
+int
+pfs_decompress_ffpfsc_to_image_opts_output(const char *path, int overwrite,
+                                    int workers, int delete_policy,
+                                    const char *output_path,
+                                    pfs_decompress_info_t *info,
+                                    char *err, size_t err_size) {
+  pfs_decompress_info_t local_info;
+  pfsc_reader_t reader;
+  char tmp_path[1024];
+  char legacy_tmp_path[1024];
+  int fd = -1;
+  int out = -1;
+  int rc = -1;
+
+  (void)workers;
+  memset(&reader, 0, sizeof(reader));
+  reader.fd = -1;
+  reader.mounted_fd = -1;
+  if(!info) info = &local_info;
+  if(delete_policy != PFS_DELETE_KEEP && delete_policy != PFS_DELETE_AFTER) {
+    set_err(err, err_size,
+            "image output is not available for stream delete");
+    errno = EINVAL;
+    return -1;
+  }
+  if(pfs_decompress_probe_image(path, info, err, err_size) != 0) return -1;
+  if(pfs_decompress_apply_output_path(info, output_path, err, err_size) != 0) {
+    return -1;
+  }
+  info->delete_policy = delete_policy;
+  if(info->output_exists && !overwrite) {
+    set_err(err, err_size, "output exists");
+    errno = EEXIST;
+    return -2;
+  }
+  if(hidden_tmp_path_for_output(info->output_path, "gc-unpack",
+                                tmp_path, sizeof(tmp_path)) != 0) {
+    set_err(err, err_size, "temporary output path too long");
+    return -1;
+  }
+  if(snprintf(legacy_tmp_path, sizeof(legacy_tmp_path), "%s.tmp",
+              info->output_path) >= (int)sizeof(legacy_tmp_path)) {
+    set_err(err, err_size, "legacy temporary output path too long");
+    return -1;
+  }
+
+  job_set_target(info->output_path);
+  job_set_current("Opening compressed image");
+  if(remove_tree_local(tmp_path) != 0) {
+    set_err(err, err_size, "remove old temp output: %s", strerror(errno));
+    goto done;
+  }
+  if(remove_tree_local(legacy_tmp_path) != 0) {
+    set_err(err, err_size, "remove old legacy temp output: %s",
+            strerror(errno));
+    goto done;
+  }
+
+  fd = open(info->source_path, O_RDONLY);
+  if(fd < 0) {
+    set_err(err, err_size, "open input: %s", strerror(errno));
+    goto done;
+  }
+  if(pfsc_reader_open_from_outer(fd, &reader, err, err_size) != 0) {
+    close(fd);
+    fd = -1;
+    goto done;
+  }
+  fd = -1;
+  snprintf(info->nested_name, sizeof(info->nested_name), "%s",
+           reader.nested_name);
+  info->nested_size = reader.nested_size;
+  if(pfs_decompress_set_image_output_path(info, err, err_size) != 0) {
+    goto done;
+  }
+  if(pfs_decompress_apply_output_path(info, output_path, err, err_size) != 0) {
+    goto done;
+  }
+  pfsc_reader_try_open_mounted(&reader, info->source_path);
+
+  atomic_store(&g_job.total_bytes, job_long_from_u64(reader.nested_size));
+  atomic_store(&g_job.copied_bytes, 0);
+  atomic_store(&g_job.compressed_output_bytes, 0);
+  atomic_store(&g_job.raw_blocks, 0);
+  atomic_store(&g_job.compressed_blocks, 0);
+  atomic_store(&g_job.skipped_zlib_blocks, 0);
+  atomic_store(&g_job.hash_checked_blocks, 0);
+  atomic_store(&g_job.hash_matched_blocks, 0);
+  atomic_store(&g_job.hash_mismatched_blocks, 0);
+  atomic_store(&g_job.software_compared_blocks, 0);
+  atomic_store(&g_job.total_blocks,
+               reader.block_count > (uint64_t)LONG_MAX ? LONG_MAX :
+               (long)reader.block_count);
+  atomic_store(&g_job.writer_wait_us, 0);
+  atomic_store(&g_job.worker_wait_us, 0);
+  atomic_store(&g_job.total_files, 1);
+  atomic_store(&g_job.done_files, 0);
+  atomic_store(&g_job.failed_files, 0);
+
+  job_set_current(info->nested_type == PFS_NESTED_EXFAT
+      ? "Decompressing exFAT image"
+      : "Decompressing PFS image");
+  out = open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+  if(out < 0) {
+    set_err(err, err_size, "create output image: %s", strerror(errno));
+    goto done;
+  }
+  if(pfsc_reader_write_image_to_fd(&reader, out, err, err_size) != 0) {
+    goto done;
+  }
+  if(fsync(out) != 0) {
+    set_err(err, err_size, "sync output image: %s", strerror(errno));
+    goto done;
+  }
+  if(close(out) != 0) {
+    out = -1;
+    set_err(err, err_size, "close output image: %s", strerror(errno));
+    goto done;
+  }
+  out = -1;
+
+  if(job_cancelled()) {
+    set_err(err, err_size, "cancelled");
+    errno = EINTR;
+    goto done;
+  }
+
+  job_set_current("Finalizing image");
+  if(info->output_exists || overwrite) {
+    if(remove_tree_local(info->output_path) != 0) {
+      set_err(err, err_size, "replace output image: %s", strerror(errno));
+      goto done;
+    }
+  }
+  if(rename(tmp_path, info->output_path) != 0) {
+    set_err(err, err_size, "rename output image: %s", strerror(errno));
+    goto done;
+  }
+  chmod(info->output_path, 0777);
+  info->output_exists = 1;
+  atomic_store(&g_job.done_files, 1);
+
+  if(delete_policy == PFS_DELETE_AFTER) {
+    job_set_current("Removing compressed image");
+    if(unlink(info->source_path) != 0 && errno != ENOENT) {
+      set_err(err, err_size, "remove compressed image: %s", strerror(errno));
+      goto done;
+    }
+  }
+  rc = 0;
+
+done:
+  if(out >= 0) close(out);
+  if(reader.fd >= 0) pfsc_reader_close(&reader);
+  if(fd >= 0) close(fd);
+  if(rc != 0) {
+    remove_tree_local(tmp_path);
+    remove_tree_local(legacy_tmp_path);
+    if(err && err_size > 0 && !err[0]) {
+      set_err(err, err_size, "%s", strerror(errno));
+    }
+  }
+  return rc;
+}
+
+int
+pfs_decompress_ffpfsc_to_image_opts(const char *path, int overwrite,
+                                    int workers, int delete_policy,
+                                    pfs_decompress_info_t *info,
+                                    char *err, size_t err_size) {
+  return pfs_decompress_ffpfsc_to_image_opts_output(path, overwrite, workers,
+                                                    delete_policy, NULL, info,
+                                                    err, err_size);
+}
+
+int
+pfs_decompress_ffpfsc_to_app_opts_output(const char *path, int overwrite,
+                                  int workers, int delete_policy,
+                                  const char *output_path,
                                   pfs_decompress_info_t *info,
                                   char *err, size_t err_size) {
   pfs_decompress_info_t local_info;
@@ -2158,6 +2972,7 @@ pfs_decompress_ffpfsc_to_app_opts(const char *path, int overwrite, int workers,
   exfat_reader_t er;
   pfs_extract_plan_t plan = {0};
   char tmp_path[1024];
+  char legacy_tmp_path[1024];
   uint64_t file_count = 0;
   uint64_t data_bytes = 0;
   uint64_t data_blocks = 0;
@@ -2180,6 +2995,9 @@ pfs_decompress_ffpfsc_to_app_opts(const char *path, int overwrite, int workers,
     return -1;
   }
   if(pfs_decompress_probe(path, info, err, err_size) != 0) return -1;
+  if(pfs_decompress_apply_output_path(info, output_path, err, err_size) != 0) {
+    return -1;
+  }
   info->delete_policy = delete_policy;
   if(info->output_exists && !overwrite) {
     set_err(err, err_size, "output exists");
@@ -2190,9 +3008,14 @@ pfs_decompress_ffpfsc_to_app_opts(const char *path, int overwrite, int workers,
   if(workers <= 0) workers = PFS_COMPRESS_DEFAULT_WORKERS;
   if(workers > PFS_COMPRESS_MAX_WORKERS) workers = PFS_COMPRESS_MAX_WORKERS;
 
-  if(snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", info->output_path) >=
-     (int)sizeof(tmp_path)) {
+  if(hidden_tmp_path_for_output(info->output_path, "gc-unpack",
+                                tmp_path, sizeof(tmp_path)) != 0) {
     set_err(err, err_size, "temporary output path too long");
+    return -1;
+  }
+  if(snprintf(legacy_tmp_path, sizeof(legacy_tmp_path), "%s.tmp",
+              info->output_path) >= (int)sizeof(legacy_tmp_path)) {
+    set_err(err, err_size, "legacy temporary output path too long");
     return -1;
   }
 
@@ -2204,9 +3027,17 @@ pfs_decompress_ffpfsc_to_app_opts(const char *path, int overwrite, int workers,
     set_err(err, err_size, "remove old temp output: %s", strerror(errno));
     goto done;
   }
+  if(!preserve_stream_tmp && remove_tree_local(legacy_tmp_path) != 0) {
+    set_err(err, err_size, "remove old legacy temp output: %s",
+            strerror(errno));
+    goto done;
+  }
 
   if(pfs_decompress_detect_nested(info->source_path, info,
                                   err, err_size) != 0) {
+    goto done;
+  }
+  if(pfs_decompress_apply_output_path(info, output_path, err, err_size) != 0) {
     goto done;
   }
   nested_type = info->nested_type;
@@ -2274,6 +3105,10 @@ pfs_decompress_ffpfsc_to_app_opts(const char *path, int overwrite, int workers,
   atomic_store(&g_job.raw_blocks, 0);
   atomic_store(&g_job.compressed_blocks, 0);
   atomic_store(&g_job.skipped_zlib_blocks, 0);
+  atomic_store(&g_job.hash_checked_blocks, 0);
+  atomic_store(&g_job.hash_matched_blocks, 0);
+  atomic_store(&g_job.hash_mismatched_blocks, 0);
+  atomic_store(&g_job.software_compared_blocks, 0);
   atomic_store(&g_job.total_blocks,
                data_blocks > (uint64_t)LONG_MAX ? LONG_MAX :
                (long)data_blocks);
@@ -2303,7 +3138,7 @@ pfs_decompress_ffpfsc_to_app_opts(const char *path, int overwrite, int workers,
     }
   } else if(nested_type == PFS_NESTED_PFS) {
     if(pfs_extract_dir(&nr, nr.uroot_inode, tmp_path, "", workers,
-                       err, err_size) != 0) {
+                       1, err, err_size) != 0) {
       goto done;
     }
   } else if(nested_type == PFS_NESTED_EXFAT) {
@@ -2353,12 +3188,23 @@ done:
   if(exfat_opened) exfat_reader_close(&er);
   if(rc != 0 && !stream_delete) {
     remove_tree_local(tmp_path);
+    remove_tree_local(legacy_tmp_path);
     if(err && err_size > 0 && !err[0]) {
       set_err(err, err_size, "%s", strerror(errno));
     }
   }
   pfs_extract_plan_free(&plan);
   return rc;
+}
+
+int
+pfs_decompress_ffpfsc_to_app_opts(const char *path, int overwrite, int workers,
+                                  int delete_policy,
+                                  pfs_decompress_info_t *info,
+                                  char *err, size_t err_size) {
+  return pfs_decompress_ffpfsc_to_app_opts_output(path, overwrite, workers,
+                                                  delete_policy, NULL, info,
+                                                  err, err_size);
 }
 
 int

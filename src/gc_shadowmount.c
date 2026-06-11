@@ -745,6 +745,15 @@ gc_shadowmount_remove_title_pfsc_hints(const char *title_id,
     return -1;
   }
 
+  if(build_title_hint_name(title_id, ".pfs", title_image,
+                           sizeof(title_image)) != 0) {
+    set_err(err, err_size, "ShadowMount title PFS hint name too long");
+    return -1;
+  }
+  if(remove_image_mode_and_sector_hints(title_image, err, err_size) != 0) {
+    return -1;
+  }
+
   if(build_title_hint_name(title_id, ".ffpfsc", title_image,
                            sizeof(title_image)) != 0) {
     set_err(err, err_size, "ShadowMount title PFSC hint name too long");
@@ -773,6 +782,27 @@ gc_shadowmount_prepare_pfsc_hints_for_title(const char *title_id,
 }
 
 int
+gc_shadowmount_prepare_image_hints_for_title(const char *title_id,
+                                             const char *image_path,
+                                             int nested_type,
+                                             char *err,
+                                             size_t err_size) {
+  if(err && err_size) err[0] = 0;
+  if(nested_type != PFS_NESTED_PFS && nested_type != PFS_NESTED_EXFAT) {
+    set_err(err, err_size, "bad ShadowMount image type");
+    return -1;
+  }
+  if(gc_shadowmount_remove_title_pfsc_hints(title_id, image_path,
+                                           err, err_size) != 0) {
+    return -1;
+  }
+  if(upsert_image_mode_hint(image_path, 1, err, err_size) != 0) {
+    return -1;
+  }
+  return remove_sector_hint(image_path, err, err_size);
+}
+
+int
 gc_shadowmount_remove_pfsc_hints(const char *outer_path,
                                  const char *nested_name,
                                  int nested_type,
@@ -797,6 +827,38 @@ gc_shadowmount_remove_outer_sector_hint(const char *outer_path,
   if(err && err_size) err[0] = 0;
   if(!outer_path || !outer_path[0]) return 0;
   return remove_sector_hint(outer_path, err, err_size);
+}
+
+int
+gc_shadowmount_request_source_scan(const char *source_path,
+                                   char *err, size_t err_size) {
+  int fd;
+  size_t len;
+  if(err && err_size) err[0] = 0;
+  if(!source_path || source_path[0] != '/') {
+    set_err(err, err_size, "bad ShadowMount source path");
+    return -1;
+  }
+  if(mkdir_if_needed(SHADOWMOUNT_DIR) != 0) {
+    set_errno_err(err, err_size, "create /data/shadowmount");
+    return -1;
+  }
+  fd = open(SHADOWMOUNT_MANUAL_LIST, O_WRONLY | O_CREAT | O_APPEND, 0666);
+  if(fd < 0) {
+    set_errno_err(err, err_size, "open ShadowMount manual.lst");
+    return -1;
+  }
+  len = strlen(source_path);
+  if(write(fd, source_path, len) != (ssize_t)len ||
+     write(fd, "\n", 1) != 1) {
+    set_errno_err(err, err_size, "append ShadowMount manual source");
+    close(fd);
+    return -1;
+  }
+  fsync(fd);
+  close(fd);
+  chmod(SHADOWMOUNT_MANUAL_LIST, 0666);
+  return gc_shadowmount_request_scan(err, err_size);
 }
 
 int

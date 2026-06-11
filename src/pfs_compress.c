@@ -778,6 +778,28 @@ join_abs_rel(char *out, size_t out_size, const char *root, const char *rel) {
   return 0;
 }
 
+int
+pfs_compress_temp_output_path(const char *output_path, char *out,
+                              size_t out_size) {
+  char parent[1024];
+  char base[256];
+  if(!output_path || !output_path[0] || !out || out_size == 0) {
+    errno = EINVAL;
+    return -1;
+  }
+  if(path_parent_base(output_path, parent, sizeof(parent),
+                      base, sizeof(base)) != 0) {
+    return -1;
+  }
+  int n = snprintf(out, out_size, "%s%s.%s.gc-compress.tmp",
+                   parent, parent[1] ? "/" : "", base);
+  if(n < 0 || (size_t)n >= out_size) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  return 0;
+}
+
 static int
 remove_tree_local(const char *path) {
   struct stat st;
@@ -1058,10 +1080,8 @@ int
 pfs_compress_stream_journal_path(const char *output_path, char *out,
                                  size_t out_size) {
   char tmp_path[1024];
-  int n = snprintf(tmp_path, sizeof(tmp_path), "%s.tmp",
-                   output_path ? output_path : "");
-  if(n < 0 || (size_t)n >= sizeof(tmp_path) || !output_path || !output_path[0]) {
-    errno = ENAMETOOLONG;
+  if(pfs_compress_temp_output_path(output_path, tmp_path,
+                                   sizeof(tmp_path)) != 0) {
     return -1;
   }
   return destructive_stream_journal_path_from_tmp(tmp_path, out, out_size);
@@ -6941,6 +6961,8 @@ pfs_compress_probed_to_ffpfsc_opts(pfs_app_info_t *info, int overwrite,
   char tmp_path[1024];
   char vhash_tmp_path[1024];
   char vhash_output_path[1024];
+  char legacy_tmp_path[1024];
+  char legacy_vhash_tmp_path[1024];
   int fd = -1;
   int rc = -1;
   int delete_started = 0;
@@ -7018,18 +7040,27 @@ pfs_compress_probed_to_ffpfsc_opts(pfs_app_info_t *info, int overwrite,
     return -2;
   }
 
-  if(snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", info->output_path) >=
-     (int)sizeof(tmp_path)) {
+  if(pfs_compress_temp_output_path(info->output_path, tmp_path,
+                                   sizeof(tmp_path)) != 0) {
     set_err(err, err_size, "temporary output path too long");
+    return -1;
+  }
+  if(snprintf(legacy_tmp_path, sizeof(legacy_tmp_path), "%s.tmp",
+              info->output_path) >= (int)sizeof(legacy_tmp_path)) {
+    set_err(err, err_size, "legacy temporary output path too long");
     return -1;
   }
   if(pfs_vhash_sidecar_path(tmp_path, vhash_tmp_path,
                             sizeof(vhash_tmp_path)) != 0 ||
      pfs_vhash_sidecar_path(info->output_path, vhash_output_path,
-                            sizeof(vhash_output_path)) != 0) {
+                            sizeof(vhash_output_path)) != 0 ||
+     pfs_vhash_sidecar_path(legacy_tmp_path, legacy_vhash_tmp_path,
+                            sizeof(legacy_vhash_tmp_path)) != 0) {
     set_err(err, err_size, "validation hash path too long");
     return -1;
   }
+  unlink(legacy_tmp_path);
+  unlink(legacy_vhash_tmp_path);
 
   if(info->source_type == PFS_COMPRESS_SOURCE_IMAGE) {
     job_set_current("Opening existing nested image");
@@ -7109,7 +7140,8 @@ pfs_compress_probed_to_ffpfsc_opts(pfs_app_info_t *info, int overwrite,
   close(fd);
   fd = -1;
 
-  if(info->source_type == PFS_COMPRESS_SOURCE_APP) {
+  if(info->source_type == PFS_COMPRESS_SOURCE_APP &&
+     delete_policy != PFS_DELETE_KEEP) {
     job_set_current("Removing source app folder");
     if(remove_tree_local(info->source_path) != 0 && errno != ENOENT) {
       set_err(err, err_size, "remove source app folder: %s", strerror(errno));
@@ -7156,6 +7188,8 @@ done:
       (!delete_started && !destructive_started))) {
     unlink(tmp_path);
     unlink(vhash_tmp_path);
+    unlink(legacy_tmp_path);
+    unlink(legacy_vhash_tmp_path);
     if(stream_ctx_initialized && stream_ctx.journal_path[0]) {
       destructive_stream_remove_reverse_dir(&stream_ctx);
       unlink(stream_ctx.journal_path);

@@ -30,6 +30,7 @@ typedef struct pfs_decompress_info {
   char source_path[1024];
   char output_path[1024];
   char nested_name[256];
+  uint64_t nested_size;
   int  nested_type;
   int  delete_policy;
   int  output_exists;
@@ -118,6 +119,8 @@ int pfs_compress_source_to_ffpfsc_opts_profile_output_ex(
                                       const pfs_stream_options_t *stream_opts,
                                       pfs_app_info_t *info,
                                       char *err, size_t err_size);
+int pfs_compress_temp_output_path(const char *output_path, char *out,
+                                  size_t out_size);
 int pfs_compress_stream_journal_path(const char *output_path, char *out,
                                      size_t out_size);
 int pfs_compress_resume_stream_journal(const char *journal_path, int workers,
@@ -135,6 +138,9 @@ int pfs_decompress_probe(const char *path, pfs_decompress_info_t *info,
 int pfs_decompress_detect_nested(const char *path, pfs_decompress_info_t *info,
                                  char *err, size_t err_size);
 
+int pfs_decompress_probe_image(const char *path, pfs_decompress_info_t *info,
+                               char *err, size_t err_size);
+
 int pfs_decompress_ffpfsc_to_app(const char *path, int overwrite,
                                  pfs_decompress_info_t *info,
                                  char *err, size_t err_size);
@@ -148,3 +154,18 @@ int pfs_decompress_ffpfsc_to_app_opts(const char *path, int overwrite,
                                       int workers, int delete_policy,
                                       pfs_decompress_info_t *info,
                                       char *err, size_t err_size);
+int pfs_decompress_ffpfsc_to_app_opts_output(const char *path, int overwrite,
+                                      int workers, int delete_policy,
+                                      const char *output_path,
+                                      pfs_decompress_info_t *info,
+                                      char *err, size_t err_size);
+
+int pfs_decompress_ffpfsc_to_image_opts(const char *path, int overwrite,
+                                        int workers, int delete_policy,
+                                        pfs_decompress_info_t *info,
+                                        char *err, size_t err_size);
+int pfs_decompress_ffpfsc_to_image_opts_output(const char *path, int overwrite,
+                                        int workers, int delete_policy,
+                                        const char *output_path,
+                                        pfs_decompress_info_t *info,
+                                        char *err, size_t err_size);

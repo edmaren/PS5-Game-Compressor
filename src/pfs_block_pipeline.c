@@ -87,6 +87,24 @@ pfs_stream_buffer_write(pfs_stream_buffer_t *b, int fd,
   return 0;
 }
 
+unsigned char *
+pfs_stream_buffer_reserve(pfs_stream_buffer_t *b, int fd,
+                          pfs_stream_write_fn write_fn, size_t size) {
+  if(size == 0 || !b || !b->data || b->cap == 0 || size > b->cap) {
+    return NULL;
+  }
+  if(b->len + size > b->cap) {
+    if(pfs_stream_buffer_flush(b, fd, write_fn) != 0) return NULL;
+  }
+  return b->data + b->len;
+}
+
+void
+pfs_stream_buffer_commit(pfs_stream_buffer_t *b, size_t size) {
+  if(!b || size > b->cap - b->len) return;
+  b->len += size;
+}
+
 void
 pfs_stream_buffer_free(pfs_stream_buffer_t *b) {
   if(!b) return;

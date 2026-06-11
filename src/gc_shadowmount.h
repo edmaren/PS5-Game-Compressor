@@ -16,6 +16,11 @@ int gc_shadowmount_prepare_pfsc_hints_for_title(const char *title_id,
                                                 int nested_type,
                                                 char *err,
                                                 size_t err_size);
+int gc_shadowmount_prepare_image_hints_for_title(const char *title_id,
+                                                 const char *image_path,
+                                                 int nested_type,
+                                                 char *err,
+                                                 size_t err_size);
 int gc_shadowmount_remove_pfsc_hints(const char *outer_path,
                                      const char *nested_name,
                                      int nested_type,
@@ -29,6 +34,9 @@ int gc_shadowmount_remove_outer_sector_hint(const char *outer_path,
                                             char *err,
                                             size_t err_size);
 
+int gc_shadowmount_request_source_scan(const char *source_path,
+                                       char *err,
+                                       size_t err_size);
 int gc_shadowmount_request_scan(char *err, size_t err_size);
 int gc_shadowmount_restart_running(char *detail, size_t detail_size);
 

@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -22,8 +23,16 @@
       --button-shadow: 0 18px 42px rgba(23, 105, 255, .24);
     }
 
-    * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; }
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+    }
+
     body {
       background: var(--bg);
       color: var(--text);
@@ -131,11 +140,27 @@
       transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
     }
 
-    .game-row:hover { transform: translateY(-1px); background: rgba(255,255,255,.72); }
-    .game-row:active { transform: scale(.985); }
+    .game-row:hover {
+      transform: translateY(-1px);
+      background: rgba(255, 255, 255, .72);
+    }
+
+    .game-row:active {
+      transform: scale(.985);
+    }
+
     .game-row.is-selected {
       background: var(--surface-solid);
       box-shadow: 0 14px 34px rgba(37, 51, 81, .12);
+    }
+
+    .game-row.is-unmounted {
+      opacity: .52;
+    }
+
+    .game-row.is-unmounted:hover,
+    .game-row.is-unmounted.is-selected {
+      opacity: .72;
     }
 
     .thumb,
@@ -146,7 +171,7 @@
       border-radius: 16px;
       background: linear-gradient(145deg, #eef4ff, #dce8fb);
       color: var(--accent);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 10px 24px rgba(37, 51, 81, .12);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .92), 0 10px 24px rgba(37, 51, 81, .12);
     }
 
     .thumb {
@@ -193,7 +218,7 @@
       padding: 0 9px;
       border-radius: 999px;
       border: 1px solid var(--line);
-      background: rgba(255,255,255,.72);
+      background: rgba(255, 255, 255, .72);
       color: var(--muted);
       font-size: 11px;
       font-weight: 500;
@@ -207,35 +232,114 @@
       text-align: center;
     }
 
-    .chip.ok { color: #14895b; border-color: rgba(20,137,91,.20); background: #eaf8f1; }
-    .chip.warn { color: #a56a05; border-color: rgba(165,106,5,.18); background: #fff5dd; }
-    .chip.run { color: #0d5bdd; border-color: rgba(19,102,255,.20); background: #eaf2ff; }
-    .chip.bad { color: #bc3047; border-color: rgba(216,76,91,.18); background: #fff0f2; }
-    .chip.compressing { color: #0d5bdd; border-color: rgba(19,102,255,.22); background: #eaf2ff; }
-    .chip.closing { color: #5b6472; border-color: rgba(91,100,114,.22); background: #edf1f5; }
-    .chip.mounting { color: #216b8f; border-color: rgba(33,107,143,.22); background: #e8f5fb; }
-    .chip.validating { color: #0f766e; border-color: rgba(15,118,110,.22); background: #e7f7f4; }
-    .chip.repacking { color: #8a5b0d; border-color: rgba(168,112,12,.22); background: #fff4d8; }
-    .chip.moving { color: #386176; border-color: rgba(56,97,118,.22); background: #e9f4f8; }
-    .chip.finalizing { color: #59616d; border-color: rgba(89,97,109,.22); background: #eef1f5; }
-    .chip.restoring { color: #6b4ba1; border-color: rgba(107,75,161,.22); background: #f0ebff; }
-    .chip.unpacking { color: #6b4ba1; border-color: rgba(107,75,161,.22); background: #f0ebff; }
-	    .chip.size-pending { gap: 6px; color: #386176; border-color: rgba(56,97,118,.18); background: #edf7fa; }
-	    button.chip { font-family: inherit; cursor: pointer; }
-	    button.chip:hover { filter: brightness(.98); }
+    .chip.ok {
+      color: #14895b;
+      border-color: rgba(20, 137, 91, .20);
+      background: #eaf8f1;
+    }
+
+    .chip.warn {
+      color: #a56a05;
+      border-color: rgba(165, 106, 5, .18);
+      background: #fff5dd;
+    }
+
+    .chip.run {
+      color: #0d5bdd;
+      border-color: rgba(19, 102, 255, .20);
+      background: #eaf2ff;
+    }
+
+    .chip.bad {
+      color: #bc3047;
+      border-color: rgba(216, 76, 91, .18);
+      background: #fff0f2;
+    }
+
+    .chip.compressing {
+      color: #0d5bdd;
+      border-color: rgba(19, 102, 255, .22);
+      background: #eaf2ff;
+    }
+
+    .chip.closing {
+      color: #5b6472;
+      border-color: rgba(91, 100, 114, .22);
+      background: #edf1f5;
+    }
+
+    .chip.mounting {
+      color: #216b8f;
+      border-color: rgba(33, 107, 143, .22);
+      background: #e8f5fb;
+    }
+
+    .chip.validating {
+      color: #0f766e;
+      border-color: rgba(15, 118, 110, .22);
+      background: #e7f7f4;
+    }
+
+    .chip.repacking {
+      color: #8a5b0d;
+      border-color: rgba(168, 112, 12, .22);
+      background: #fff4d8;
+    }
+
+    .chip.moving {
+      color: #386176;
+      border-color: rgba(56, 97, 118, .22);
+      background: #e9f4f8;
+    }
+
+    .chip.finalizing {
+      color: #59616d;
+      border-color: rgba(89, 97, 109, .22);
+      background: #eef1f5;
+    }
+
+    .chip.restoring {
+      color: #6b4ba1;
+      border-color: rgba(107, 75, 161, .22);
+      background: #f0ebff;
+    }
+
+    .chip.unpacking {
+      color: #6b4ba1;
+      border-color: rgba(107, 75, 161, .22);
+      background: #f0ebff;
+    }
+
+    .chip.size-pending {
+      gap: 6px;
+      color: #386176;
+      border-color: rgba(56, 97, 118, .18);
+      background: #edf7fa;
+    }
+
+    button.chip {
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    button.chip:hover {
+      filter: brightness(.98);
+    }
 
     .mini-spinner {
       width: 10px;
       height: 10px;
       border-radius: 999px;
-      border: 2px solid rgba(56,97,118,.22);
+      border: 2px solid rgba(56, 97, 118, .22);
       border-top-color: #386176;
       animation: spin .85s linear infinite;
       flex: 0 0 auto;
     }
 
     @keyframes spin {
-      to { transform: rotate(360deg); }
+      to {
+        transform: rotate(360deg);
+      }
     }
 
     .content {
@@ -245,7 +349,7 @@
       grid-template-rows: 64px 1fr;
       border: 1px solid var(--line);
       border-radius: 32px;
-      background: rgba(255,255,255,.74);
+      background: rgba(255, 255, 255, .74);
       box-shadow: var(--soft-shadow);
       overflow: hidden;
       backdrop-filter: blur(22px);
@@ -267,7 +371,7 @@
       padding: 0 12px;
       border-radius: 14px;
       border: 1px solid var(--line);
-      background: rgba(255,255,255,.64);
+      background: rgba(255, 255, 255, .64);
       color: var(--muted);
       font-size: 13px;
       font-weight: 680;
@@ -281,7 +385,7 @@
     }
 
     .icon-btn {
-      background: rgba(255,255,255,.64);
+      background: rgba(255, 255, 255, .64);
       border: 1px solid var(--line);
       box-shadow: 0 8px 20px rgba(37, 51, 81, .08);
       transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
@@ -326,7 +430,7 @@
     }
 
     .hero-icon.is-new-icon {
-      animation: icon-arrive .35s cubic-bezier(.2,.8,.2,1);
+      animation: icon-arrive .35s cubic-bezier(.2, .8, .2, 1);
     }
 
     .game-title {
@@ -389,7 +493,11 @@
       transform: translateY(-1px);
       box-shadow: 0 22px 52px rgba(19, 102, 255, .28);
     }
-    .primary-btn:active { transform: scale(.985); }
+
+    .primary-btn:active {
+      transform: scale(.985);
+    }
+
     .primary-btn:disabled {
       cursor: default;
       filter: saturate(.6);
@@ -430,12 +538,15 @@
 
     .more-btn:hover {
       transform: translateY(-1px);
-      border-color: rgba(19,102,255,.28);
+      border-color: rgba(19, 102, 255, .28);
       color: var(--accent);
       box-shadow: 0 18px 42px rgba(37, 51, 81, .13);
     }
 
-    .more-btn:active { transform: scale(.985); }
+    .more-btn:active {
+      transform: scale(.985);
+    }
+
     .more-btn:disabled {
       cursor: default;
       opacity: .48;
@@ -454,21 +565,29 @@
       stroke-linejoin: round;
     }
 
+    .menu-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+    }
+
     .secondary-menu {
       position: fixed;
       left: 0;
       top: 0;
-      z-index: 20;
+      z-index: 1;
       width: min(260px, calc(100vw - 52px));
       max-height: calc(100vh - 24px);
       overflow: auto;
+      pointer-events: auto;
       padding: 8px;
       border-radius: 18px;
       border: 1px solid var(--line);
-      background: rgba(255,255,255,.94);
+      background: rgba(255, 255, 255, .94);
       box-shadow: 0 24px 64px rgba(37, 51, 81, .18);
       backdrop-filter: blur(22px);
-      animation: menu-in .16s cubic-bezier(.2,.8,.2,1);
+      animation: menu-in .16s cubic-bezier(.2, .8, .2, 1);
     }
 
     .menu-action {
@@ -489,7 +608,18 @@
       transform: translateX(1px);
     }
 
-    .menu-action:active { transform: scale(.99); }
+    .menu-action.is-danger {
+      color: var(--danger);
+    }
+
+    .menu-action.is-danger:hover {
+      background: #fff0f2;
+      color: #bc3047;
+    }
+
+    .menu-action:active {
+      transform: scale(.99);
+    }
 
     .pending-box,
     .progress-box {
@@ -509,11 +639,10 @@
     }
 
     .progress-heading {
-      display: grid;
-      grid-template-columns: minmax(0, auto) 44px;
+      display: flex;
       align-items: baseline;
       justify-content: center;
-      gap: 7px;
+      gap: 6px;
       min-width: 0;
       color: #374151;
       font-weight: 400;
@@ -528,7 +657,7 @@
 
     .progress-percent {
       display: inline-block;
-      width: 44px;
+      width: auto;
       font-size: 16px;
       line-height: 1;
       font-weight: 400;
@@ -543,9 +672,9 @@
     }
 
     .progress-times {
-      display: flex;
-      flex-wrap: nowrap;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(96px, 1fr) auto minmax(96px, 1fr);
+      align-items: center;
       gap: 8px;
       color: var(--muted);
       font-size: 11px;
@@ -565,26 +694,33 @@
     }
 
     .progress-elapsed-value,
-    .progress-speed-value,
-    .progress-remaining-value {
+    .progress-speed-value {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
+    .progress-remaining-value {
+      white-space: nowrap;
+    }
+
     .progress-elapsed {
-      flex: 0 0 52px;
+      justify-content: flex-start;
+      justify-self: start;
     }
 
     .progress-speed {
-      flex: 1 1 136px;
+      justify-self: center;
+      justify-content: center;
+      text-align: center;
       color: var(--accent);
     }
 
     .progress-remaining {
-      flex: 1 1 126px;
       justify-content: flex-end;
+      justify-self: end;
+      overflow: visible;
     }
 
     .progress-time svg {
@@ -620,6 +756,14 @@
 
     .progress-box.is-moving .progress-fill {
       background: linear-gradient(90deg, #386176, #79b6cb);
+    }
+
+    .progress-box.is-reading .progress-fill {
+      background: linear-gradient(90deg, #13715f, #66c6a2);
+    }
+
+    .progress-box.is-deleting .progress-fill {
+      background: linear-gradient(90deg, #bc3047, #f08a96);
     }
 
     .progress-box.is-finalizing .progress-fill {
@@ -662,8 +806,15 @@
       transition: transform .18s ease, border-color .18s ease, color .18s ease;
     }
 
-    .small-action:hover { transform: translateY(-1px); border-color: rgba(19,102,255,.28); color: var(--accent); }
-    .small-action:active { transform: scale(.98); }
+    .small-action:hover {
+      transform: translateY(-1px);
+      border-color: rgba(19, 102, 255, .28);
+      color: var(--accent);
+    }
+
+    .small-action:active {
+      transform: scale(.98);
+    }
 
     .bar {
       height: 8px;
@@ -677,7 +828,7 @@
       height: 100%;
       width: 0%;
       background: linear-gradient(90deg, var(--accent), #78a3ff);
-      transition: width .35s cubic-bezier(.2,.8,.2,1);
+      transition: width .35s cubic-bezier(.2, .8, .2, 1);
     }
 
     .path-box {
@@ -701,7 +852,7 @@
       padding: 10px 12px;
       border: 1px solid var(--line);
       border-radius: 14px;
-      background: rgba(255,255,255,.52);
+      background: rgba(255, 255, 255, .52);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -725,13 +876,15 @@
     .copy-path:hover,
     .remount-path:hover {
       transform: translateY(-1px);
-      border-color: rgba(19,102,255,.28);
+      border-color: rgba(19, 102, 255, .28);
       color: var(--accent);
       box-shadow: 0 12px 26px rgba(37, 51, 81, .11);
     }
 
     .copy-path:active,
-    .remount-path:active { transform: scale(.96); }
+    .remount-path:active {
+      transform: scale(.96);
+    }
 
     .remount-path:disabled {
       cursor: default;
@@ -779,14 +932,16 @@
       z-index: 10;
     }
 
-    .modal-backdrop.hidden { display: none; }
+    .modal-backdrop.hidden {
+      display: none;
+    }
 
     .modal {
       width: min(720px, 100%);
       max-height: min(680px, 90vh);
       display: grid;
       grid-template-rows: auto 1fr;
-      background: rgba(255,255,255,.92);
+      background: rgba(255, 255, 255, .92);
       border: 1px solid var(--line);
       border-radius: 28px;
       box-shadow: 0 24px 80px var(--shadow);
@@ -819,7 +974,7 @@
       padding: 18px;
       border-radius: 20px;
       border: 1px solid var(--line);
-      background: rgba(255,255,255,.68);
+      background: rgba(255, 255, 255, .68);
       text-align: center;
     }
 
@@ -877,7 +1032,7 @@
       border-radius: 18px;
       border: 1px solid var(--line);
       margin-bottom: 10px;
-      background: rgba(255,255,255,.68);
+      background: rgba(255, 255, 255, .68);
     }
 
     .history-title {
@@ -904,7 +1059,7 @@
       border-radius: 18px;
       border: 1px solid var(--line);
       margin-bottom: 10px;
-      background: rgba(255,255,255,.68);
+      background: rgba(255, 255, 255, .68);
       text-align: left;
       cursor: pointer;
     }
@@ -933,33 +1088,89 @@
       margin-bottom: 0;
     }
 
+    .format-row.is-hidden,
+    .format-section-title.is-hidden,
+    .format-grid.is-hidden {
+      display: none;
+    }
+
     .compress-usb-panel {
       margin: -4px 0 14px;
       padding: 10px;
       border: 1px solid var(--line);
       border-radius: 18px;
-      background: rgba(255,255,255,.48);
+      background: rgba(255, 255, 255, .48);
     }
 
-    .compress-usb-panel.hidden { display: none; }
+    .compress-usb-panel.hidden {
+      display: none;
+    }
 
-    .compress-usb-select {
+    .usb-picker {
+      position: relative;
+      display: grid;
+      gap: 8px;
+    }
+
+    .usb-picker-trigger,
+    .usb-picker-option {
       width: 100%;
-      min-height: 42px;
+      min-height: 52px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
       border: 1px solid var(--line);
       border-radius: 14px;
-      background: rgba(255,255,255,.78);
+      background: rgba(255, 255, 255, .78);
       color: var(--text);
       font: inherit;
-      font-size: 14px;
-      font-weight: 680;
-      padding: 0 12px;
+      padding: 10px 12px;
       outline: none;
+      text-align: left;
+      cursor: pointer;
     }
 
-    .compress-usb-select:focus {
-      border-color: rgba(23,105,255,.5);
-      box-shadow: 0 0 0 3px rgba(23,105,255,.12);
+    .usb-picker-trigger:hover,
+    .usb-picker-option:hover {
+      border-color: var(--accent);
+    }
+
+    .usb-picker-trigger:focus-visible,
+    .usb-picker-option:focus-visible {
+      border-color: rgba(23, 105, 255, .5);
+      box-shadow: 0 0 0 3px rgba(23, 105, 255, .12);
+    }
+
+    .usb-picker-menu {
+      display: grid;
+      gap: 8px;
+      max-height: 228px;
+      overflow: auto;
+    }
+
+    .usb-picker-option {
+      min-height: 48px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .66);
+    }
+
+    .usb-picker-option.is-selected {
+      border-color: rgba(23, 105, 255, .48);
+      background: #eef4ff;
+    }
+
+    .usb-picker-empty {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      border: 1px dashed var(--line);
+      border-radius: 14px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 680;
+      background: rgba(255, 255, 255, .38);
     }
 
     .compress-usb-meta {
@@ -970,7 +1181,7 @@
     }
 
     .format-row.is-selected {
-      border-color: rgba(23,105,255,.48);
+      border-color: rgba(23, 105, 255, .48);
       background: #eef4ff;
     }
 
@@ -994,6 +1205,14 @@
       box-shadow: var(--button-shadow);
     }
 
+    .small-action.is-danger {
+      min-width: 150px;
+      color: #fff;
+      border-color: transparent;
+      background: linear-gradient(135deg, #bc3047, #e85d6b);
+      box-shadow: 0 18px 34px rgba(216, 76, 91, .22);
+    }
+
     .small-action:disabled {
       cursor: default;
       opacity: .55;
@@ -1008,19 +1227,49 @@
       padding-top: 14px;
     }
 
-    .danger-text { color: var(--danger); }
+    .danger-text {
+      color: var(--danger);
+    }
+
+    .delete-warning {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      border: 1px solid rgba(216, 76, 91, .2);
+      border-radius: 14px;
+      background: #fff0f2;
+    }
+
+    .delete-warning .history-meta {
+      overflow-wrap: anywhere;
+    }
 
     @keyframes icon-arrive {
-      from { transform: translateY(8px) scale(.98); opacity: .78; }
-      to { transform: translateY(0) scale(1); opacity: 1; }
+      from {
+        transform: translateY(8px) scale(.98);
+        opacity: .78;
+      }
+
+      to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+      }
     }
 
     @keyframes menu-in {
-      from { opacity: 0; transform: translateY(-4px) scale(.98); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
+      from {
+        opacity: 0;
+        transform: translateY(-4px) scale(.98);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
+
       *,
       *::before,
       *::after {
@@ -1030,13 +1279,16 @@
     }
 
     @media (max-width: 760px) {
+
       html,
       body {
         height: auto;
         min-height: 100%;
       }
 
-      body { overflow: auto; }
+      body {
+        overflow: auto;
+      }
 
       .app {
         grid-template-columns: minmax(0, 1fr);
@@ -1060,9 +1312,13 @@
         border-radius: 24px;
       }
 
-      .sidebar-head { padding: 18px 14px 12px; }
+      .sidebar-head {
+        padding: 18px 14px 12px;
+      }
 
-      .game-list { padding: 8px; }
+      .game-list {
+        padding: 8px;
+      }
 
       .game-row {
         grid-template-columns: 54px minmax(0, 1fr) auto;
@@ -1096,7 +1352,9 @@
         padding: 22px 16px 28px;
       }
 
-      .detail-inner { gap: 16px; }
+      .detail-inner {
+        gap: 16px;
+      }
 
       .hero-icon {
         width: 128px;
@@ -1104,33 +1362,41 @@
         border-radius: 36px;
       }
 
-      .game-title { font-size: 25px; }
+      .game-title {
+        font-size: 25px;
+      }
 
-	      .primary-btn,
-	      .pending-box,
-	      .progress-box {
-	        min-height: 64px;
-	        font-size: 18px;
-	      }
+      .primary-btn,
+      .pending-box,
+      .progress-box {
+        min-height: 64px;
+        font-size: 18px;
+      }
 
-	      .progress-times {
-	        flex-wrap: nowrap;
-	        justify-content: space-between;
-	        gap: 6px;
-	        font-size: 10px;
-	      }
+      .progress-times {
+        grid-template-columns: minmax(86px, 1fr) auto minmax(86px, 1fr);
+        gap: 6px;
+        font-size: 10px;
+      }
 
-	      .progress-elapsed,
-	      .progress-speed,
-	      .progress-remaining {
-	        min-width: 0;
-	        overflow: hidden;
-	        text-overflow: ellipsis;
-	      }
+      .progress-elapsed,
+      .progress-speed,
+      .progress-remaining {
+        min-width: 0;
+      }
 
-	      .progress-elapsed { flex: 0 0 48px; }
-	      .progress-speed { flex: 1 1 100px; }
-	      .progress-remaining { flex: 1 1 96px; }
+      .progress-elapsed {
+        justify-self: start;
+      }
+
+      .progress-speed {
+        justify-self: center;
+      }
+
+      .progress-remaining {
+        justify-self: end;
+        overflow: visible;
+      }
 
       .more-btn {
         width: 56px;
@@ -1157,6 +1423,7 @@
     }
   </style>
 </head>
+
 <body>
   <div class="app">
     <aside class="sidebar">
@@ -1175,6 +1442,8 @@
       <section class="detail" id="detail"></section>
     </main>
   </div>
+
+  <div class="menu-layer" id="menu-layer"></div>
 
   <button class="icon-btn info-launcher" id="info-top" title="About" aria-label="About Game Compressor"></button>
 
@@ -1198,7 +1467,9 @@
         <div class="about-copy">
           <div class="about-main">Built by Juma Sayeh</div>
           <div class="about-sub">Tested by Osama Abualia</div>
-          <div class="about-made">Made with <span class="about-image-icon about-heart" role="img" aria-label="love"></span> in <span class="about-image-icon about-palestine" role="img" aria-label="Palestine"></span></div>
+          <div class="about-made">Made with <span class="about-image-icon about-heart" role="img"
+              aria-label="love"></span> in <span class="about-image-icon about-palestine" role="img"
+              aria-label="Palestine"></span></div>
         </div>
       </div>
     </div>
@@ -1207,7 +1478,7 @@
   <div class="modal-backdrop hidden" id="usb-modal">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="usb-title">
       <div class="modal-head">
-        <div class="modal-title" id="usb-title">Move to USB</div>
+        <div class="modal-title" id="usb-title">Move to External Storage</div>
         <button class="icon-btn" id="usb-close" aria-label="Close"></button>
       </div>
       <div class="modal-body" id="usb-body"></div>
@@ -1223,41 +1494,42 @@
       <div class="modal-body" id="format-body">
         <div class="format-section-title">Format</div>
         <div class="format-grid">
-          <button class="format-row" type="button" data-compress-format="pfs">
-            <div>
-              <div class="history-title">PFS</div>
-              <div class="history-meta" id="format-pfs-name">pfs_image.dat</div>
-            </div>
-            <span class="chip">Select</span>
-          </button>
-          <button class="format-row" type="button" data-compress-format="exfat">
+          <button class="format-row is-default-choice" type="button" data-compress-format="exfat">
             <div>
               <div class="history-title">exFAT</div>
               <div class="history-meta" id="format-exfat-name">&lt;TITLE_ID&gt;.exfat</div>
             </div>
             <span class="chip">Select</span>
           </button>
+          <button class="format-row" type="button" data-compress-format="pfs">
+            <div>
+              <div class="history-title">PFS Experimental</div>
+              <div class="history-meta" id="format-pfs-name">Experimental - pfs_image.dat</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
         </div>
         <div class="format-section-title">Optimization</div>
         <div class="format-grid">
-	          <button class="format-row" type="button" data-compress-profile="space">
-	            <div>
-	              <div class="history-title">Zlib test</div>
-	              <div class="history-meta">1 read lane, 14 best-speed zlib workers, 1 write lane</div>
-	            </div>
-	            <span class="chip">Select</span>
-	          </button>
-	          <button class="format-row" type="button" data-compress-profile="fast">
-	            <div>
-	              <div class="history-title">Legacy fast</div>
-	              <div class="history-meta">Keeps the fast profile available for fallback and stream paths</div>
-	            </div>
-	            <span class="chip">Select</span>
-	          </button>
+          <button class="format-row is-default-choice" type="button" data-compress-profile="space">
+            <div>
+              <div class="history-title">Optimize for Space</div>
+              <div class="history-meta">Up to 30% less space than Fast, 5x time to compress, slightly faster read speed
+              </div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+          <button class="format-row" type="button" data-compress-profile="fast">
+            <div>
+              <div class="history-title">Optimize for Speed</div>
+              <div class="history-meta">Fast baseline, quickest compression</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
         </div>
         <div class="format-section-title">Storage Mode</div>
         <div class="format-grid">
-          <button class="format-row" type="button" data-compress-policy="after">
+          <button class="format-row is-default-choice" type="button" data-compress-policy="after">
             <div>
               <div class="history-title">Safe</div>
               <div class="history-meta" id="format-safe-space">Keeps the original until the new file is complete</div>
@@ -1274,24 +1546,48 @@
         </div>
         <div class="format-section-title">Destination</div>
         <div class="format-grid">
-          <button class="format-row" type="button" data-compress-destination="keep">
+          <button class="format-row is-default-choice" type="button" data-compress-destination="keep">
             <div>
-              <div class="history-title">Keep in place</div>
+              <div class="history-title">Compress in place</div>
               <div class="history-meta">Write next to the current game</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+          <button class="format-row" type="button" data-compress-destination="internal">
+            <div>
+              <div class="history-title">Internal SSD</div>
+              <div class="history-meta">Write compressed file to /data/homebrew</div>
             </div>
             <span class="chip">Select</span>
           </button>
           <button class="format-row" type="button" data-compress-destination="usb">
             <div>
-              <div class="history-title">External USB</div>
-              <div class="history-meta">Write compressed file to USB</div>
+              <div class="history-title">External Storage</div>
+              <div class="history-meta">Write compressed file to selected storage</div>
             </div>
             <span class="chip">Select</span>
           </button>
         </div>
         <div class="compress-usb-panel hidden" id="compress-usb-panel">
-          <select class="compress-usb-select" id="compress-usb-select"></select>
+          <div class="usb-picker" id="compress-usb-picker"></div>
           <div class="compress-usb-meta" id="compress-usb-meta"></div>
+        </div>
+        <div class="format-section-title is-hidden" id="compress-source-title">Original source</div>
+        <div class="format-grid is-hidden" id="compress-source-grid">
+          <button class="format-row is-default-choice" type="button" data-compress-source-policy="after">
+            <div>
+              <div class="history-title">Delete after completion</div>
+              <div class="history-meta">Remove the original after the compressed file is verified</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+          <button class="format-row" type="button" data-compress-source-policy="keep">
+            <div>
+              <div class="history-title">Keep both</div>
+              <div class="history-meta">Leave the original source in its current location</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
         </div>
         <div class="modal-actions">
           <button class="small-action is-primary" type="button" id="format-start">Compress</button>
@@ -1300,11 +1596,109 @@
     </div>
   </div>
 
+  <div class="modal-backdrop hidden" id="uncompress-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="uncompress-title">
+      <div class="modal-head">
+        <div class="modal-title" id="uncompress-title">Uncompress</div>
+        <button class="icon-btn" id="uncompress-close" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="uncompress-body">
+        <div class="format-section-title">Output</div>
+        <div class="format-grid">
+          <button class="format-row is-default-choice" type="button" data-uncompress-mode="image">
+            <div>
+              <div class="history-title" id="uncompress-image-title">Image</div>
+              <div class="history-meta" id="uncompress-image-name">Detecting image type</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+          <button class="format-row" type="button" data-uncompress-mode="files">
+            <div>
+              <div class="history-title">Files</div>
+              <div class="history-meta" id="uncompress-files-name">App folder</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+        </div>
+        <div class="format-section-title">Destination</div>
+        <div class="format-grid">
+          <button class="format-row is-default-choice" type="button" data-uncompress-destination="inplace"
+            id="uncompress-inplace-row">
+            <div>
+              <div class="history-title">In place</div>
+              <div class="history-meta" id="uncompress-inplace-meta">Write next to the compressed image</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+          <button class="format-row" type="button" data-uncompress-destination="internal" id="uncompress-internal-row">
+            <div>
+              <div class="history-title">Internal SSD</div>
+              <div class="history-meta">Write to /data/homebrew</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+          <button class="format-row" type="button" data-uncompress-destination="usb" id="uncompress-usb-row">
+            <div>
+              <div class="history-title">External Storage</div>
+              <div class="history-meta">Write to selected storage</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+        </div>
+        <div class="compress-usb-panel hidden" id="uncompress-usb-panel">
+          <div class="usb-picker" id="uncompress-usb-picker"></div>
+          <div class="compress-usb-meta" id="uncompress-usb-meta"></div>
+        </div>
+        <div class="format-section-title is-hidden" id="uncompress-source-title">Original source</div>
+        <div class="format-grid is-hidden" id="uncompress-policy-grid">
+          <button class="format-row" type="button" data-uncompress-policy="keep">
+            <div>
+              <div class="history-title">Keep both</div>
+              <div class="history-meta">Leave the compressed image after output is written</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+          <button class="format-row" type="button" data-uncompress-policy="after">
+            <div>
+              <div class="history-title">Delete after completion</div>
+              <div class="history-meta">Remove the compressed image after output is ready</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+        </div>
+        <div class="modal-actions">
+          <button class="small-action is-primary" type="button" id="uncompress-start">Uncompress</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="delete-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+      <div class="modal-head">
+        <div class="modal-title" id="delete-title">Delete Game Data</div>
+        <button class="icon-btn" id="delete-close" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="delete-warning">
+          <div class="history-title" id="delete-game-name">Game data</div>
+          <div class="history-meta" id="delete-warning-text">This permanently deletes the selected game data from
+            storage. This cannot be undone.</div>
+          <div class="history-meta" id="delete-game-path"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="small-action" type="button" id="delete-cancel">Cancel</button>
+          <button class="small-action is-danger" type="button" id="delete-confirm">Delete Game Data</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const SELECTED_GAME_COOKIE = 'game_compressor_selected_title';
     const PFS_BLOCK_SIZE = 64 * 1024;
-    const SPEED_SAMPLE_WINDOW_MS = 120 * 1000;
-    const SPEED_MIN_SAMPLE_MS = 20 * 1000;
+    const SPEED_SAMPLE_WINDOW_MS = 8 * 1000;
+    const SPEED_MIN_SAMPLE_MS = 1000;
 
     const state = {
       games: [],
@@ -1313,6 +1707,7 @@
       job: null,
       speed: {
         activeId: '',
+        metricKey: '',
         metricBytes: 0,
         sampledAt: 0,
         bytesPerSecond: 0,
@@ -1321,15 +1716,29 @@
       selected: '',
       revealSelected: false,
       moveGame: null,
+      moveMode: 'move',
       compressGame: null,
-      compressFormat: 'pfs',
+      compressFormat: 'exfat',
       compressProfile: 'space',
       compressDeletePolicy: 'after',
+      compressSourcePolicy: 'after',
       compressDestination: 'keep',
       compressUsbId: '',
       compressUsbLoading: false,
+      compressUsbOpen: false,
+      uncompressGame: null,
+      uncompressPlan: null,
+      uncompressPlanLoading: false,
+      uncompressPlanError: '',
+      uncompressMode: 'image',
+      uncompressDestination: 'inplace',
+      uncompressDeletePolicy: 'after',
+      uncompressUsbId: '',
+      uncompressUsbLoading: false,
+      uncompressUsbOpen: false,
+      deleteGame: null,
+      deleteBusy: false,
       secondaryMenuFor: '',
-      mountingTitles: {},
       iconCache: {},
       iconRequests: {},
       iconFailures: {},
@@ -1345,6 +1754,7 @@
     let refreshJobInFlight = false;
     let pollBurstTimer = 0;
     let pollBurstUntil = 0;
+    let cancelingActiveId = '';
 
     const $ = (id) => document.getElementById(id);
 
@@ -1370,23 +1780,30 @@
         '; Max-Age=' + maxAge + '; Path=/; SameSite=Lax';
     }
 
-    function rememberSelectedGame(titleId) {
-      if (!titleId) return;
-      writeCookie(SELECTED_GAME_COOKIE, titleId, 180);
+    function gameInstanceId(g) {
+      if (!g) return '';
+      if (g.instanceId) return String(g.instanceId);
+      const path = String(g.sourcePath || '').replace(/\/+$/, '');
+      return String(g.titleId || '') + ':' + String(g.sourceKind || '') + ':' + path;
     }
 
-    function selectGame(titleId, remember, reveal) {
-      if (!titleId) return;
-      state.selected = titleId;
+    function rememberSelectedGame(instanceId) {
+      if (!instanceId) return;
+      writeCookie(SELECTED_GAME_COOKIE, instanceId, 180);
+    }
+
+    function selectGame(instanceId, remember, reveal) {
+      if (!instanceId) return;
+      state.selected = instanceId;
       state.secondaryMenuFor = '';
-      if (remember) rememberSelectedGame(titleId);
+      if (remember) rememberSelectedGame(instanceId);
       if (reveal) state.revealSelected = true;
     }
 
     function restoreSelectedGame() {
-      const titleId = cookieValue(SELECTED_GAME_COOKIE);
-      if (!titleId) return;
-      selectGame(titleId, false, true);
+      const instanceId = cookieValue(SELECTED_GAME_COOKIE);
+      if (!instanceId) return;
+      selectGame(instanceId, false, true);
     }
 
     function icon(name) {
@@ -1438,7 +1855,7 @@
       const res = await fetch(url, Object.assign({ cache: 'no-store' }, options || {}));
       const text = await res.text();
       let data = {};
-      try { data = text ? JSON.parse(text) : {}; } catch (err) {}
+      try { data = text ? JSON.parse(text) : {}; } catch (err) { }
       if (!res.ok) {
         const e = new Error(data.error || text || res.statusText);
         e.data = data;
@@ -1448,7 +1865,22 @@
     }
 
     function selectedGame() {
-      return state.games.find((g) => g.titleId === state.selected) || state.games[0] || null;
+      return state.games.find((g) => gameInstanceId(g) === state.selected) ||
+        state.games.find((g) => String(g.titleId || '') === String(state.selected || '')) ||
+        state.games[0] ||
+        null;
+    }
+
+    function selectedKeyForGame(g) {
+      return gameInstanceId(g);
+    }
+
+    function gameQuery(g) {
+      let query = 'titleId=' + encodeURIComponent((g && g.titleId) || '');
+      if (g && g.sourcePath) {
+        query += '&sourcePath=' + encodeURIComponent(g.sourcePath);
+      }
+      return query;
     }
 
     function gameSortName(g) {
@@ -1480,25 +1912,50 @@
       return String(job.activeId || '') === String(op.id || '') ? job : null;
     }
 
-	    function operationVisual(op, job) {
-	      const action = String((op && op.action) || (job && job.verb) || '').toLowerCase();
-	      const phase = String((job && job.phase) || (op && op.phase) || '').toLowerCase();
-	      const current = String((job && job.current) || '').toLowerCase();
-	      const validationAction = action === 'validate-repair' || action === 'validate-only';
+    function jobCanceling(job) {
+      job = job || activeJob() || {};
+      const activeId = String((job && job.activeId) || '');
+      return !!(job && (job.cancelRequested || job.rollbackRequested)) ||
+        (activeId && activeId === cancelingActiveId);
+    }
+
+    function operationVisual(op, job) {
+      const action = String((op && op.action) || (job && job.verb) || '').toLowerCase();
+      const phase = String((job && job.phase) || (op && op.phase) || '').toLowerCase();
+      const current = String((job && job.current) || '').toLowerCase();
+      const validationAction = action === 'validate-repair' || action === 'validate-only';
       const repairBlocks = Number((job && job.repairBlocks) ||
         (op && (op.badBlocksFound || op.repairedBlocks)) || 0);
 
-      if (job && job.rollbackRequested) {
-        return { label: 'Restoring...', className: 'restoring' };
+      if (jobCanceling(job)) {
+        return { label: 'Canceling', className: 'closing' };
       }
       if (phase === 'closing' || current.indexOf('closing') !== -1) {
         return { label: 'Closing', className: 'closing' };
       }
+      if (action === 'refresh-mount') {
+        if (phase === 'hiding' || current.indexOf('hiding other') !== -1) {
+          return { label: 'Hiding other instances', className: 'mounting' };
+        }
+        if (phase === 'restoring' || current.indexOf('restoring other') !== -1) {
+          return { label: 'Restoring other instances', className: 'restoring' };
+        }
+        if (phase === 'complete') {
+          return { label: 'Done', className: 'finalizing' };
+        }
+        return { label: 'Mounting', className: 'mounting' };
+      }
+      if (action === 'delete-game-data') {
+        return { label: 'Deleting', className: 'deleting' };
+      }
+      if (action === 'read-speed-test') {
+        return { label: 'Testing Read Speed', className: 'reading' };
+      }
       if (phase === 'mounting' ||
-          current.indexOf('requesting shadowmount') !== -1 ||
-          current.indexOf('waiting for shadowmount') !== -1 ||
-          current.indexOf('waiting for remount') !== -1 ||
-          current.indexOf('remount') !== -1) {
+        current.indexOf('requesting shadowmount') !== -1 ||
+        current.indexOf('waiting for shadowmount') !== -1 ||
+        current.indexOf('waiting for remount') !== -1 ||
+        current.indexOf('remount') !== -1) {
         return { label: 'Mounting', className: 'mounting' };
       }
       if (phase === 'metadata' || current.indexOf('finalizing') !== -1) {
@@ -1510,29 +1967,32 @@
       if (action === 'move-to-usb' || action === 'move-to-internal') {
         return { label: 'Transferring', className: 'moving' };
       }
+      if (action === 'copy-to-usb' || action === 'copy-to-internal') {
+        return { label: 'Copying', className: 'moving' };
+      }
       if (phase === 'copying') {
         return { label: 'Repacking', className: 'repacking' };
       }
       if (action === 'uncompress') {
         return { label: 'Unpacking', className: 'unpacking' };
       }
-	      if (validationAction &&
-	          repairBlocks <= 0 &&
-	          (phase === 'repairing' || current.indexOf('repairing') !== -1)) {
-	        return { label: 'Validating', className: 'validating' };
-	      }
+      if (validationAction &&
+        repairBlocks <= 0 &&
+        (phase === 'repairing' || current.indexOf('repairing') !== -1)) {
+        return { label: 'Validating', className: 'validating' };
+      }
       if (phase === 'repairing' ||
-          current.indexOf('repairing') !== -1 ||
-          current.indexOf('rebuilding repaired') !== -1) {
+        current.indexOf('repairing') !== -1 ||
+        current.indexOf('rebuilding repaired') !== -1) {
         return { label: 'Repacking', className: 'repacking' };
       }
-	      if (validationAction ||
-	          phase === 'scanning' ||
-	          phase === 'opening' ||
-          phase === 'finding-mounted-image' ||
-          current.indexOf('validat') !== -1 ||
-          current.indexOf('scanning mounted') !== -1 ||
-          current.indexOf('checking shadowmount') !== -1) {
+      if (validationAction ||
+        phase === 'scanning' ||
+        phase === 'opening' ||
+        phase === 'finding-mounted-image' ||
+        current.indexOf('validat') !== -1 ||
+        current.indexOf('scanning mounted') !== -1 ||
+        current.indexOf('checking shadowmount') !== -1) {
         return { label: 'Validating', className: 'validating' };
       }
       if (action === 'compress') {
@@ -1541,8 +2001,11 @@
       return { label: 'Running', className: 'run' };
     }
 
-	    function progressUnits(job) {
-	      job = job || activeJob() || {};
+    function progressUnits(job) {
+      job = job || activeJob() || {};
+      if (jobCanceling(job)) {
+        return { done: 0, total: 0, countable: false };
+      }
       const phase = String(job.phase || '').toLowerCase();
       const totalBlocks = Number(job.totalBlocks || 0);
       const doneBlocks = Number(job.doneBlocks || 0);
@@ -1553,34 +2016,35 @@
           total: totalBlocks,
           countable: true
         };
-	      }
-	      const total = Number(job.totalBytes || 0);
-	      const copied = Number(job.copiedBytes || 0);
-	      if (total > 0 && (
-	          phase === 'copying' ||
-	          phase === 'unpacking' ||
-	          phase === 'moving' ||
-	          phase === 'restoring' ||
-	          phase === 'scanning')) {
-	        return {
-	          done: Math.max(0, Math.min(total, copied)),
-	          total,
-	          countable: true
-	        };
-	      }
-	      const count = Number(job.phaseCount || 0);
-	      const step = Number(job.phaseStep || 0);
-	      if (count > 0 && (
-	          phase === 'copying' ||
-	          phase === 'unpacking' ||
-	          phase === 'moving' ||
-	          phase === 'restoring' ||
-	          phase === 'scanning')) {
-	        return {
-	          done: Math.max(0, Math.min(count, step)),
-	          total: count,
-	          countable: true
-	        };
+      }
+      const total = Number(job.totalBytes || 0);
+      const copied = Number(job.copiedBytes || 0);
+      if (total > 0 && (
+        phase === 'copying' ||
+        phase === 'unpacking' ||
+        phase === 'moving' ||
+        phase === 'restoring' ||
+        phase === 'scanning')) {
+        return {
+          done: Math.max(0, Math.min(total, copied)),
+          total,
+          countable: true
+        };
+      }
+      const count = Number(job.phaseCount || 0);
+      const step = Number(job.phaseStep || 0);
+      if (count > 0 && (
+        phase === 'copying' ||
+        phase === 'unpacking' ||
+        phase === 'moving' ||
+        phase === 'restoring' ||
+        phase === 'scanning' ||
+        phase === 'read-test')) {
+        return {
+          done: Math.max(0, Math.min(count, step)),
+          total: count,
+          countable: true
+        };
       }
       return { done: 0, total: 0, countable: false };
     }
@@ -1597,25 +2061,22 @@
         visual.className !== 'finalizing';
     }
 
-	    function visualShowsThroughput(visual, progress) {
-	      return !!(progress && progress.countable && progress.hasSpeed) &&
-	        !!visual &&
-	        visual.className !== 'closing';
-	    }
+    function visualShowsThroughput(visual, progress) {
+      return !!(progress && progress.countable && progress.hasSpeed) &&
+        !!visual &&
+        visual.className !== 'closing';
+    }
 
     function statusChip(g) {
       if (g.activeOp) {
         const visual = operationVisual(g.activeOp, jobForOperation(g.activeOp));
         return '<span class="chip ' + visual.className + '" data-active-op-chip="' +
-          escapeHtml(g.titleId) + '">' + escapeHtml(visual.label) + '</span>';
+          escapeHtml(gameInstanceId(g)) + '">' + escapeHtml(visual.label) + '</span>';
       }
       if (g.pendingOp) {
         return '<span class="chip warn">' +
           escapeHtml(pendingOperationLabel(g.pendingOp).toLowerCase()) +
           '</span>';
-      }
-      if (isTryMounting(g)) {
-        return '<span class="chip mounting">Mounting</span>';
       }
       if (g.sourceKind === 'compressed') {
         if (g.validation === 'validated') return '<span class="chip ok">validated</span>';
@@ -1627,31 +2088,58 @@
       return '<span class="chip bad">unavailable</span>';
     }
 
-    function savedChip(g) {
-      const saved = Number(g && g.savedBytes || 0);
-      if (!g || g.sourceKind !== 'compressed' || saved <= 0) return '';
-      return '<span class="chip metric ok">saved ' + escapeHtml(shortSize(saved)) + '</span>';
+    function mountStateChip(g) {
+      if (!g || g.isMounted !== false) return '';
+      const status = String(g.mountStatus || '').toLowerCase();
+      const label = status === 'working' ? 'working' : 'not mounted';
+      return '<span class="chip bad">' + escapeHtml(label) + '</span>';
     }
 
-    function sizeChip(g) {
-      if (g && g.sizePending) {
-        return '<span class="chip size-pending"><span class="mini-spinner" aria-hidden="true"></span>measuring</span>';
+    function detailMountStateChip(g) {
+      if (!g || g.isMounted !== false) return '';
+      return mountStateChip(g);
+    }
+
+    function detailStatusChip(g) {
+      if (!g) return '';
+      if (g.activeOp || g.pendingOp ||
+        g.sourceKind === 'compressed' || g.sourceKind === 'unknown') {
+        return statusChip(g);
       }
-      return '<span class="chip metric">' + shortSize(g && g.sourceSize) + '</span>';
+      return '';
     }
 
-		    function opCanRepairBlocks(op) {
-		      const action = String((op && op.action) || '').toLowerCase();
-		      return action === 'validate-repair' || action === 'compress';
-		    }
+    function storageChip(g) {
+      const storage = String((g && g.storage) || '').toLowerCase();
+      if (!storage) return '';
+      return '<span class="chip">' + escapeHtml(storage) + '</span>';
+    }
 
-		    function opCanFindBadBlocks(op) {
-		      const action = String((op && op.action) || '').toLowerCase();
-		      return action === 'validate-repair' || action === 'validate-only';
-		    }
+    function opCanRepairBlocks(op) {
+      const action = String((op && op.action) || '').toLowerCase();
+      return action === 'validate-repair' || action === 'compress';
+    }
+
+    function opCanFindBadBlocks(op) {
+      const action = String((op && op.action) || '').toLowerCase();
+      return action === 'validate-repair' || action === 'validate-only';
+    }
+
+    function opCanShowCompressionStats(op) {
+      const action = String((op && op.action) || '').toLowerCase();
+      return action === 'compress' &&
+        String((op && op.status) || '').toLowerCase() === 'success' &&
+        (Number(op.compressedSize || 0) > 0 || Number(op.savedBytes || 0) > 0);
+    }
 
     function normalizedPath(path) {
       return String(path || '').replace(/\/+$/, '');
+    }
+
+    function pathUnderRoot(path, root) {
+      const value = normalizedPath(path);
+      const prefix = normalizedPath(root);
+      return !!value && !!prefix && (value === prefix || value.indexOf(prefix + '/') === 0);
     }
 
     function operationTime(op) {
@@ -1668,7 +2156,9 @@
       return action === 'compress' ||
         action === 'uncompress' ||
         action === 'move-to-usb' ||
-        action === 'move-to-internal';
+        action === 'move-to-internal' ||
+        action === 'copy-to-usb' ||
+        action === 'copy-to-internal';
     }
 
     function latestStateChangeTimeForGame(g) {
@@ -1687,10 +2177,15 @@
     function operationBelongsToCurrentGame(g, op) {
       if (!g || !op) return false;
       if (String(op.titleId || '') !== String(g.titleId || '')) return false;
+      const action = String((op && op.action) || '').toLowerCase();
       const current = normalizedPath(g.sourcePath);
       if (!current) return true;
-      return normalizedPath(op.sourcePath) === current ||
-        normalizedPath(op.outputPath) === current;
+      const source = normalizedPath(op.sourcePath);
+      const output = normalizedPath(op.outputPath);
+      if (action === 'compress') {
+        return g.sourceKind === 'compressed' ? output === current : source === current;
+      }
+      return source === current || output === current;
     }
 
     function operationIsCurrentForGame(g, op) {
@@ -1703,8 +2198,8 @@
       if (!op) return false;
       const result = String(op.result || '').toLowerCase();
       if (result === 'verified-not-mounted' ||
-          result === 'not-mounted' ||
-          result === 'bad-blocks-found-not-mounted') return true;
+        result === 'not-mounted' ||
+        result === 'bad-blocks-found-not-mounted') return true;
       if (op.status !== 'failed') return false;
       const text = String((op.error || '') + ' ' + (op.result || '') + ' ' + (op.phase || '')).toLowerCase();
       const repairBlocks = Math.max(0, Number(op.repairedBlocks || op.badBlocksFound || 0));
@@ -1714,31 +2209,82 @@
         (repairBlocks > 0 && text.indexOf('post-repair') !== -1);
     }
 
-	    function latestRepairOperationForGame(g, includeMountFailure) {
-	      const titleId = String((g && g.titleId) || '');
-	      if (!titleId || !Array.isArray(state.history)) return null;
-	      for (const op of state.history) {
-	        if (!operationIsCurrentForGame(g, op)) continue;
-	        if (!opCanRepairBlocks(op)) continue;
-	        if (op.status !== 'success' &&
-	            !(includeMountFailure && opLooksLikeMountFailure(op))) continue;
-	        return op;
-	      }
-	      return null;
-	    }
+    function latestRepairOperationForGame(g, includeMountFailure) {
+      const titleId = String((g && g.titleId) || '');
+      if (!titleId || !Array.isArray(state.history)) return null;
+      for (const op of state.history) {
+        if (!operationIsCurrentForGame(g, op)) continue;
+        if (!opCanRepairBlocks(op)) continue;
+        if (op.status !== 'success' &&
+          !(includeMountFailure && opLooksLikeMountFailure(op))) continue;
+        return op;
+      }
+      return null;
+    }
 
-	    function latestBadBlocksOperationForGame(g, includeMountFailure) {
-	      const titleId = String((g && g.titleId) || '');
-	      if (!titleId || !Array.isArray(state.history)) return null;
-	      for (const op of state.history) {
-	        if (!operationIsCurrentForGame(g, op)) continue;
-	        if (!opCanFindBadBlocks(op)) continue;
-	        if (op.status !== 'success' &&
-	            !(includeMountFailure && opLooksLikeMountFailure(op))) continue;
-	        return op;
-	      }
-	      return null;
-	    }
+    function latestBadBlocksOperationForGame(g, includeMountFailure) {
+      const titleId = String((g && g.titleId) || '');
+      if (!titleId || !Array.isArray(state.history)) return null;
+      for (const op of state.history) {
+        if (!operationIsCurrentForGame(g, op)) continue;
+        if (!opCanFindBadBlocks(op)) continue;
+        if (op.status !== 'success' &&
+          !(includeMountFailure && opLooksLikeMountFailure(op))) continue;
+        return op;
+      }
+      return null;
+    }
+
+    function latestCompressionOperationForGame(g) {
+      const titleId = String((g && g.titleId) || '');
+      if (!g || g.sourceKind !== 'compressed') return null;
+      if (!titleId || !Array.isArray(state.history)) return null;
+      for (const op of state.history) {
+        if (!operationIsCurrentForGame(g, op)) continue;
+        if (!opCanShowCompressionStats(op)) continue;
+        return op;
+      }
+      return null;
+    }
+
+    function compressionStatsForGame(g) {
+      if (!g) return null;
+      const gameCompressedSize = Number(g.compressedSize || 0);
+      const gameSourceSize = Number(g.compressionSourceSize || 0);
+      const gameSaved = Number(g.savedBytes || 0);
+      if (gameCompressedSize > 0 || gameSaved > 0) {
+        return {
+          compressedSize: gameCompressedSize > 0 ? gameCompressedSize : Number(g.sourceSize || 0),
+          sourceSize: gameSourceSize,
+          savedBytes: gameSaved
+        };
+      }
+      const op = latestCompressionOperationForGame(g);
+      if (!op) return null;
+      return {
+        compressedSize: Number(op.compressedSize || 0),
+        sourceSize: Number(op.compressionSourceSize || 0),
+        savedBytes: Number(op.savedBytes || 0)
+      };
+    }
+
+    function savedChip(g) {
+      const stats = compressionStatsForGame(g);
+      const saved = Number((stats && stats.savedBytes) || 0);
+      if (!g || saved <= 0) return '';
+      return '<span class="chip metric ok">saved ' + escapeHtml(shortSize(saved)) + '</span>';
+    }
+
+    function sizeChip(g) {
+      if (g && g.sizePending) {
+        return '<span class="chip size-pending"><span class="mini-spinner" aria-hidden="true"></span>measuring</span>';
+      }
+      const stats = compressionStatsForGame(g);
+      const size = stats && Number(stats.compressedSize || 0) > 0
+        ? Number(stats.compressedSize || 0)
+        : Number(g && g.sourceSize || 0);
+      return '<span class="chip metric">' + shortSize(size) + '</span>';
+    }
 
     function latestMountFailureForGame(g) {
       const titleId = String((g && g.titleId) || '');
@@ -1751,53 +2297,25 @@
       return null;
     }
 
-    function isTryMounting(g) {
-      const titleId = String((g && g.titleId) || '');
-      if (!titleId || !state.mountingTitles[titleId]) return false;
-      if (Date.now() > Number(state.mountingTitles[titleId] || 0)) {
-        delete state.mountingTitles[titleId];
-        return false;
-      }
-      return true;
-    }
-
-    function setTryMounting(g, active) {
-      const titleId = String((g && g.titleId) || '');
-      if (!titleId) return;
-      if (active) {
-        state.mountingTitles[titleId] = Date.now() + 30000;
-        setTimeout(() => {
-          if (!state.mountingTitles[titleId] || Date.now() <= state.mountingTitles[titleId]) return;
-          delete state.mountingTitles[titleId];
-          render();
-        }, 31000);
-      } else {
-        delete state.mountingTitles[titleId];
-      }
-    }
-
     function mountNoticeChip(g) {
-      if (isTryMounting(g)) return '';
-      if (!g || g.activeOp || g.pendingOp || g.sourceKind !== 'compressed' ||
-          !latestMountFailureForGame(g)) return '';
-      return "<span class=\"chip bad\">didn't mount</span>";
+      return '';
     }
 
-	    function completedBadBlocksForGame(g) {
-	      const op = latestBadBlocksOperationForGame(g, true);
-	      if (!op) return null;
-	      if (operationShowsRepairedOutcome(op, null)) return null;
-	      const blocks = Math.max(0, Number(op.badBlocksFound || op.repairedBlocks || 0));
-	      return Number.isFinite(blocks) ? blocks : null;
-	    }
+    function completedBadBlocksForGame(g) {
+      const op = latestBadBlocksOperationForGame(g, true);
+      if (!op) return null;
+      if (operationShowsRepairedOutcome(op, null)) return null;
+      const blocks = Math.max(0, Number(op.badBlocksFound || op.repairedBlocks || 0));
+      return Number.isFinite(blocks) ? blocks : null;
+    }
 
-	    function completedBadBlocksOperationForGame(g) {
-	      const op = latestBadBlocksOperationForGame(g, true);
-	      if (!op) return null;
-	      if (operationShowsRepairedOutcome(op, null)) return null;
-	      const blocks = Math.max(0, Number(op.badBlocksFound || op.repairedBlocks || 0));
-	      return Number.isFinite(blocks) && blocks > 0 ? op : null;
-	    }
+    function completedBadBlocksOperationForGame(g) {
+      const op = latestBadBlocksOperationForGame(g, true);
+      if (!op) return null;
+      if (operationShowsRepairedOutcome(op, null)) return null;
+      const blocks = Math.max(0, Number(op.badBlocksFound || op.repairedBlocks || 0));
+      return Number.isFinite(blocks) && blocks > 0 ? op : null;
+    }
 
     function operationShowsRepairedOutcome(op, job) {
       if (!op || !opCanRepairBlocks(op)) return false;
@@ -1837,33 +2355,33 @@
         )) || 0)) > 0;
     }
 
-	    function badBlocksChipHtml(blocks, dir) {
-	      const label = blocks + ' bad block' + (blocks === 1 ? '' : 's') + ' found';
-	      if (blocks <= 0) {
-		        return '<span class="chip metric ok">' + escapeHtml(label) + '</span>';
-	      }
-	      if (dir) {
-		        return '<button class="chip metric warn" type="button" title="Open bad block log" data-bad-blocks-dir="' +
-		          escapeHtml(dir) + '">' + escapeHtml(label) + '</button>';
-		      }
-		      return '<span class="chip metric warn">' + escapeHtml(label) + '</span>';
-	    }
+    function badBlocksChipHtml(blocks, dir) {
+      const label = blocks + ' bad block' + (blocks === 1 ? '' : 's') + ' found';
+      if (blocks <= 0) {
+        return '<span class="chip metric ok">' + escapeHtml(label) + '</span>';
+      }
+      if (dir) {
+        return '<button class="chip metric warn" type="button" title="Open bad block log" data-bad-blocks-dir="' +
+          escapeHtml(dir) + '">' + escapeHtml(label) + '</button>';
+      }
+      return '<span class="chip metric warn">' + escapeHtml(label) + '</span>';
+    }
 
-	    function badBlocksChip(g) {
-	      if (!g || g.sourceKind !== 'compressed') return '';
-	      if (g.activeOp) {
-	        const job = jobForOperation(g.activeOp);
-	        if (operationShowsRepairedOutcome(g.activeOp, job)) return '';
-	        const blocks = liveBadBlocksForOperation(g.activeOp, job);
-	        if (activeBadBlocksChipVisible(g.activeOp, job)) {
-	          return badBlocksChipHtml(blocks, blocks > 0 ? (g.activeOp.repairSummary || '') : '');
-	        }
-	      }
-	      const blocks = completedBadBlocksForGame(g);
-	      if (blocks === null) return '';
-	      const op = completedBadBlocksOperationForGame(g);
-	      return badBlocksChipHtml(blocks, (op && op.repairSummary) || '');
-	    }
+    function badBlocksChip(g) {
+      if (!g) return '';
+      if (g.activeOp) {
+        const job = jobForOperation(g.activeOp);
+        if (operationShowsRepairedOutcome(g.activeOp, job)) return '';
+        const blocks = liveBadBlocksForOperation(g.activeOp, job);
+        if (activeBadBlocksChipVisible(g.activeOp, job)) {
+          return badBlocksChipHtml(blocks, blocks > 0 ? (g.activeOp.repairSummary || '') : '');
+        }
+      }
+      const blocks = completedBadBlocksForGame(g);
+      if (blocks === null) return '';
+      const op = completedBadBlocksOperationForGame(g);
+      return badBlocksChipHtml(blocks, (op && op.repairSummary) || '');
+    }
 
     function completedRepairBlocksForGame(g) {
       const op = latestRepairOperationForGame(g, true);
@@ -1875,31 +2393,43 @@
       return Number.isFinite(blocks) ? blocks : null;
     }
 
-	    function repairedBlocksChip(g) {
-	      if (!g || g.sourceKind !== 'compressed') return '';
-	      if (g.pendingOp) {
-	        const pendingAction = String((g.pendingOp && g.pendingOp.action) || '').toLowerCase();
-	        if (pendingAction === 'compress' || pendingAction === 'uncompress') return '';
-	      }
-	      if (g.activeOp) {
-	        const activeAction = String((g.activeOp && g.activeOp.action) || '').toLowerCase();
-	        if (activeAction === 'compress' ||
-	            activeAction === 'uncompress' ||
-	            activeAction === 'validate-repair') return '';
-	      }
-	      const blocks = completedRepairBlocksForGame(g);
-	      if (blocks === null || blocks <= 0) return '';
+    function repairedBlocksChip(g) {
+      if (!g || g.sourceKind !== 'compressed') return '';
+      if (g.pendingOp) {
+        const pendingAction = String((g.pendingOp && g.pendingOp.action) || '').toLowerCase();
+        if (pendingAction === 'compress' || pendingAction === 'uncompress') return '';
+      }
+      if (g.activeOp) {
+        const activeAction = String((g.activeOp && g.activeOp.action) || '').toLowerCase();
+        if (activeAction === 'compress' ||
+          activeAction === 'uncompress' ||
+          activeAction === 'validate-repair') return '';
+      }
+      const blocks = completedRepairBlocksForGame(g);
+      if (blocks === null || blocks <= 0) return '';
       return '<span class="chip metric ok">' + blocks + ' block' +
         (blocks === 1 ? '' : 's') + ' repaired</span>';
     }
 
-	    function repairResultKeyForGame(g) {
-	      const bad = completedBadBlocksForGame(g);
-	      const repaired = completedRepairBlocksForGame(g);
-	      const mountFailed = latestMountFailureForGame(g) ? 'mount-failed' : '';
-	      const badOp = completedBadBlocksOperationForGame(g);
-		      return [bad, repaired, mountFailed, badOp && badOp.repairSummary].map(keyPart).join('|');
-		    }
+    function repairResultKeyForGame(g) {
+      const bad = completedBadBlocksForGame(g);
+      const repaired = completedRepairBlocksForGame(g);
+      const mountFailed = latestMountFailureForGame(g) ? 'mount-failed' : '';
+      const badOp = completedBadBlocksOperationForGame(g);
+      return [bad, repaired, mountFailed, badOp && badOp.repairSummary].map(keyPart).join('|');
+    }
+
+    function compressionResultKeyForGame(g) {
+      const stats = compressionStatsForGame(g) || {};
+      const op = latestCompressionOperationForGame(g);
+      return [
+        stats.compressedSize,
+        stats.sourceSize,
+        stats.savedBytes,
+        op && op.id,
+        op && op.endedAt
+      ].map(keyPart).join('|');
+    }
 
     function repairBlocksForOperation(op, job) {
       const storedBlocks = op && op.repairedBlocks !== undefined && op.repairedBlocks !== null
@@ -1918,22 +2448,41 @@
       return blocks + ' block' + (blocks === 1 ? '' : 's') + ' repaired';
     }
 
-	    function historyResultLabel(op, job) {
-	      const result = (op.phase && op.phase !== 'complete') ? op.phase :
-	        (op.result || op.status);
-	      const action = String((op && op.action) || '').toLowerCase();
-	      if (action === 'validate-only') {
-	        if (result === 'bad-blocks-found-not-mounted') return "bad blocks found, didn't mount";
-	        if (result === 'verified-not-mounted') return "no bad blocks found, didn't mount";
-	        if (result === 'bad-blocks-found') return 'bad blocks found';
-	        if (result === 'clean') return 'no bad blocks found';
-	      }
+    function readSpeedAverageText(op) {
+      if (!op) return '';
+      const bytesRead = Math.max(0, Number(op.compressionSourceSize || op.compressedSize || 0));
+      const started = Math.max(0, Number(op.startedAt || op.createdAt || 0));
+      const ended = Math.max(0, Number(op.endedAt || 0));
+      const seconds = ended > started ? ended - started : 0;
+      if (bytesRead <= 0 || seconds <= 0) return '';
+      return speedText(bytesRead / seconds);
+    }
+
+    function historyResultLabel(op, job) {
+      const result = (op.phase && op.phase !== 'complete') ? op.phase :
+        (op.result || op.status);
+      const action = String((op && op.action) || '').toLowerCase();
+      if (action === 'validate-only') {
+        if (result === 'bad-blocks-found-not-mounted') return "bad blocks found, didn't mount";
+        if (result === 'verified-not-mounted') return "no bad blocks found, didn't mount";
+        if (result === 'bad-blocks-found') return 'bad blocks found';
+        if (result === 'clean') return 'no bad blocks found';
+      }
       if (action === 'uncompress' && result === 'not-mounted') {
         return "unpacked, didn't mount";
       }
+      if (action === 'refresh-mount') {
+        if (result === 'success') return 'mounted';
+        if (result === 'not-mounted') return 'not mounted';
+      }
+      if (action === 'read-speed-test') {
+        const average = readSpeedAverageText(op);
+        if (average) return 'avg ' + average;
+        if (result === 'tested') return 'tested read speed';
+      }
       if (opLooksLikeMountFailure(op)) return "verified, didn't mount";
-	      const repairText = repairedBlocksText(op, job);
-	      if (!repairText) return result;
+      const repairText = repairedBlocksText(op, job);
+      if (!repairText) return result;
       return op.status === 'failed' && result ?
         result + ' - ' + repairText :
         repairText;
@@ -2018,28 +2567,30 @@
       return size || mtime ? size + '-' + mtime : '';
     }
 
-	    function opKey(op) {
-	      if (!op) return '';
-	      return [
-	        op.id, op.titleId, op.displayName, op.action, op.status, op.phase,
-	        op.result, op.error, op.sourcePath, op.outputPath, op.sourceKind,
-	        op.deletePolicy, op.compressionProfile, op.repairSummary,
-	        op.createdAt, op.startedAt, op.endedAt,
-	        op.repairedBlocks, op.badBlocksFound,
-	        op.hashCheckedBlocks, op.softwareComparedBlocks
-	      ].map(keyPart).join('|');
-	    }
+    function opKey(op) {
+      if (!op) return '';
+      return [
+        op.id, op.titleId, op.displayName, op.action, op.status, op.phase,
+        op.result, op.error, op.sourcePath, op.outputPath, op.sourceKind,
+        op.deletePolicy, op.compressionProfile, op.repairSummary,
+        op.createdAt, op.startedAt, op.endedAt,
+        op.compressionSourceSize, op.compressedSize, op.savedBytes,
+        op.repairedBlocks, op.badBlocksFound,
+        op.hashCheckedBlocks, op.softwareComparedBlocks
+      ].map(keyPart).join('|');
+    }
 
     function gameKey(g) {
       return [
+        gameInstanceId(g),
         g.titleId, g.name, g.sourceKind, g.sourcePath, g.outputPath,
-        g.storage, g.validation, g.primaryAction, g.sourceSize, g.freeBytes,
+        g.storage, g.isMounted, g.mountStatus,
+        g.validation, g.primaryAction, g.sourceSize, g.freeBytes,
         g.requiredBytes, g.extraBytes, g.streamMinFreeBytes,
         g.streamExtraBytes, g.savedBytes,
         g.compressionSourceSize, g.compressedSize,
         g.sizePending, g.canStreamDelete, g.hasIcon,
         iconVersion(g), g.outputExists, g.canMoveToUsb, g.canMoveToInternal,
-        isTryMounting(g),
         opKey(g.activeOp), opKey(g.pendingOp)
       ].map(keyPart).join('|');
     }
@@ -2075,26 +2626,31 @@
       const g = selectedGame();
       if (!g) return 'empty';
       return [
-	        gameKey(g), actionFor(g), actionLabel(g),
-	        repairResultKeyForGame(g),
-	        g && g.activeOp && state.job && state.job.activeId === g.activeOp.id
-	          ? [
-	                state.job.badBlocksFound,
-	                state.job.repairedBlocks,
-	                state.job.repairBlocks,
-		                state.job.rollbackRequested
-	              ].map(keyPart).join(':')
-	          : '',
-	        state.secondaryMenuFor === g.titleId ? 'menu' : ''
-	      ].map(keyPart).join('|');
+        gameKey(g), actionFor(g), actionLabel(g),
+        compressionResultKeyForGame(g),
+        repairResultKeyForGame(g),
+        g && g.activeOp && state.job && state.job.activeId === g.activeOp.id
+          ? [
+            state.job.badBlocksFound,
+            state.job.repairedBlocks,
+            state.job.repairBlocks,
+            state.job.cancelRequested,
+            state.job.rollbackRequested,
+            cancelingActiveId
+          ].map(keyPart).join(':')
+          : '',
+        state.secondaryMenuFor === gameInstanceId(g) ? 'menu' : ''
+      ].map(keyPart).join('|');
     }
 
     function historyKey() {
       const job = activeJob() || {};
-	      return state.history.map(opKey).join('||') + '::' +
-	        keyPart(job.activeId) + '::' + keyPart(job.badBlocksFound) + '::' +
-	        keyPart(job.repairedBlocks) + '::' + keyPart(job.repairBlocks) + '::' +
-          keyPart(job.rollbackRequested);
+      return state.history.map(opKey).join('||') + '::' +
+        keyPart(job.activeId) + '::' + keyPart(job.badBlocksFound) + '::' +
+        keyPart(job.repairedBlocks) + '::' + keyPart(job.repairBlocks) + '::' +
+        keyPart(job.cancelRequested) + '::' +
+        keyPart(job.rollbackRequested) + '::' +
+        keyPart(cancelingActiveId);
     }
 
     function currentHistoryRows() {
@@ -2110,7 +2666,7 @@
         if (!latest || latest === op) return true;
         if (Number(op.createdAt || 0) >= Number(latest.createdAt || 0)) return true;
         const noisy = op.status === 'failed' ||
-	          Math.max(0, Number(op.badBlocksFound || op.repairedBlocks || 0)) > 0;
+          Math.max(0, Number(op.badBlocksFound || op.repairedBlocks || 0)) > 0;
         return !noisy;
       });
     }
@@ -2127,11 +2683,14 @@
         return;
       }
       list.innerHTML = state.games.map((g) => (
-        '<button class="game-row ' + (g.titleId === state.selected ? 'is-selected' : '') + '" data-id="' + g.titleId + '">' +
-          '<div class="thumb">' + gameIcon(g, false) + '</div>' +
-          '<div><div class="row-title">' + escapeHtml(g.name || g.titleId) + '</div>' +
-          '<div class="row-sub">' + escapeHtml(g.titleId) + '</div></div>' +
-          statusChip(g) +
+        '<button class="game-row ' +
+        (gameInstanceId(g) === state.selected ? 'is-selected ' : '') +
+        (g.isMounted === false ? 'is-unmounted' : '') +
+        '" data-id="' + escapeHtml(gameInstanceId(g)) + '">' +
+        '<div class="thumb">' + gameIcon(g, false) + '</div>' +
+        '<div><div class="row-title">' + escapeHtml(g.name || g.titleId) + '</div>' +
+        '<div class="row-sub">' + escapeHtml(g.titleId + ' - ' + (g.storage || 'storage')) + '</div></div>' +
+        statusChip(g) +
         '</button>'
       )).join('');
       list.querySelectorAll('.game-row').forEach((row) => {
@@ -2173,13 +2732,18 @@
       return 'Start';
     }
 
-	    function pendingOperationLabel(op) {
-	      const action = String((op && op.action) || '').toLowerCase();
-	      if (action === 'compress') return 'Pending Compress';
-	      if (action === 'validate-repair' || action === 'validate-only') return 'Pending Validate';
+    function pendingOperationLabel(op) {
+      const action = String((op && op.action) || '').toLowerCase();
+      if (action === 'compress') return 'Pending Compress';
+      if (action === 'validate-repair' || action === 'validate-only') return 'Pending Validate';
+      if (action === 'refresh-mount') return 'Pending Mount';
       if (action === 'uncompress') return 'Pending Unpack';
-      if (action === 'move-to-usb') return 'Pending Move to USB';
+      if (action === 'move-to-usb') return 'Pending Move to External Storage';
       if (action === 'move-to-internal') return 'Pending Move to Internal SSD';
+      if (action === 'copy-to-usb') return 'Pending Copy to External Storage';
+      if (action === 'copy-to-internal') return 'Pending Copy to Internal SSD';
+      if (action === 'delete-game-data') return 'Pending Delete';
+      if (action === 'read-speed-test') return 'Pending Read Speed Test';
       return 'Pending Operation';
     }
 
@@ -2190,10 +2754,13 @@
     }
 
     function progressFillPercent(progress, visual) {
+      if (visual && visual.className === 'restoring') {
+        return progress && progress.countable ? progress.percent : 100;
+      }
       if (!visual ||
-          visual.className === 'closing' ||
-          visual.className === 'mounting' ||
-          visual.className === 'finalizing') {
+        visual.className === 'closing' ||
+        visual.className === 'mounting' ||
+        visual.className === 'finalizing') {
         return 100;
       }
       return progress && progress.countable ? progress.percent : 100;
@@ -2220,11 +2787,15 @@
       const remaining = fraction >= 1
         ? 0
         : fraction > 0.001 && elapsed > 0
-        ? Math.max(0, elapsed * (1 - fraction) / fraction)
-        : null;
+          ? Math.max(0, elapsed * (1 - fraction) / fraction)
+          : null;
       const reportedSpeed = reportedSpeedBytesPerSecond(job);
-      const sampledSpeed = Number(state.speed.bytesPerSecond || 0);
-      const instantSpeed = reportedSpeed > 0 ? reportedSpeed : sampledSpeed;
+      const sampledSpeed = String(state.speed.activeId || '') === String(job.activeId || '')
+        ? Number(state.speed.bytesPerSecond || 0)
+        : 0;
+      const instantSpeed = units.countable
+        ? (sampledSpeed > 0 ? sampledSpeed : reportedSpeed)
+        : reportedSpeed;
       return {
         percent,
         countable: units.countable,
@@ -2235,10 +2806,10 @@
       };
     }
 
-	    function speedMetricBytes(job) {
-	      job = job || {};
-	      if (!progressIsCountable(job)) return 0;
-	      const phase = String(job.phase || '').toLowerCase();
+    function speedMetricBytes(job) {
+      job = job || {};
+      if (!progressIsCountable(job)) return 0;
+      const phase = String(job.phase || '').toLowerCase();
       const totalBlocks = Math.max(0, Number(job.totalBlocks || 0));
       const doneBlocks = Math.max(0, Number(job.doneBlocks || 0));
       if (phase === 'compressing' && totalBlocks > 0) {
@@ -2253,9 +2824,17 @@
       const activeId = String((job && job.activeId) || '');
       const busy = !!(job && job.busy);
       const metricBytes = speedMetricBytes(job);
+      const metricKey = [
+        activeId,
+        String((job && job.verb) || ''),
+        String((job && job.phase) || ''),
+        String((job && job.speedSource) || '')
+      ].join('|');
       const now = Date.now();
       if (!busy || !activeId) {
+        cancelingActiveId = '';
         state.speed.activeId = '';
+        state.speed.metricKey = '';
         state.speed.metricBytes = 0;
         state.speed.sampledAt = 0;
         state.speed.bytesPerSecond = 0;
@@ -2263,29 +2842,46 @@
         return;
       }
       if (state.speed.activeId !== activeId ||
-          state.speed.sampledAt <= 0 ||
-          metricBytes < state.speed.metricBytes) {
+        state.speed.metricKey !== metricKey ||
+        state.speed.sampledAt <= 0 ||
+        metricBytes < state.speed.metricBytes) {
+        if (cancelingActiveId && cancelingActiveId !== activeId) {
+          cancelingActiveId = '';
+        }
         state.speed.activeId = activeId;
+        state.speed.metricKey = metricKey;
         state.speed.metricBytes = metricBytes;
         state.speed.sampledAt = now;
         state.speed.bytesPerSecond = 0;
-        state.speed.samples = [{ at: now, bytes: metricBytes }];
+        state.speed.samples = metricBytes > 0 ? [{ at: now, bytes: metricBytes }] : [];
         return;
       }
       state.speed.metricBytes = metricBytes;
       state.speed.sampledAt = now;
       const samples = state.speed.samples || [];
+      if (!samples.length) {
+        state.speed.samples = metricBytes > 0 ? [{ at: now, bytes: metricBytes }] : [];
+        state.speed.bytesPerSecond = 0;
+        return;
+      }
       const last = samples.length ? samples[samples.length - 1] : null;
-      if (!last || last.bytes !== metricBytes || now - last.at >= 1000) {
+      if (!last || last.bytes !== metricBytes || now - last.at >= SPEED_MIN_SAMPLE_MS) {
         samples.push({ at: now, bytes: metricBytes });
       }
       const cutoff = now - SPEED_SAMPLE_WINDOW_MS;
       while (samples.length > 2 && samples[1].at < cutoff) samples.shift();
       state.speed.samples = samples;
-      const base = samples[0];
-      if (base && now - Number(base.at || 0) >= SPEED_MIN_SAMPLE_MS) {
-        const elapsedMs = now - Number(base.at || 0);
-        const delta = metricBytes - base.bytes;
+      const latest = samples[samples.length - 1];
+      let base = samples[0];
+      for (let i = samples.length - 2; i >= 0; i--) {
+        if (latest.at - Number(samples[i].at || 0) >= SPEED_MIN_SAMPLE_MS) {
+          base = samples[i];
+          break;
+        }
+      }
+      if (base && latest && latest.at - Number(base.at || 0) >= SPEED_MIN_SAMPLE_MS) {
+        const elapsedMs = latest.at - Number(base.at || 0);
+        const delta = latest.bytes - base.bytes;
         state.speed.bytesPerSecond =
           elapsedMs > 0 && delta > 0 ? delta * 1000 / elapsedMs : 0;
       } else {
@@ -2302,89 +2898,101 @@
         actions.push({ id: 'uncompress', label: 'Uncompress' });
       }
       if (g.canMoveToUsb) {
-        actions.push({ id: 'move-usb', label: 'Move to USB' });
+        actions.push({ id: 'copy-usb', label: 'Copy to External Storage' });
+        actions.push({ id: 'move-usb', label: 'Move to External Storage' });
       }
       if (g.canMoveToInternal) {
+        actions.push({ id: 'copy-internal', label: 'Copy to Internal SSD' });
         actions.push({ id: 'move-internal', label: 'Move to Internal SSD' });
       }
+      actions.push({ id: 'delete-game-data', label: 'Delete Game Data', danger: true });
       return actions;
     }
 
-    function renderSecondaryMenu(g, actions) {
-      if (state.secondaryMenuFor !== g.titleId) return '';
+    function secondaryMenuMarkup(g, actions) {
+      if (!g || !actions.length) return '';
+      if (state.secondaryMenuFor !== gameInstanceId(g)) return '';
       return '<div class="secondary-menu" id="secondary-menu" role="menu" style="visibility:hidden">' +
         actions.map((action) => (
-          '<button class="menu-action" role="menuitem" data-secondary-action="' + escapeHtml(action.id) + '" data-menu-label="' + escapeHtml(action.label) + '">' +
-            escapeHtml(action.label) +
+          '<button class="menu-action' + (action.danger ? ' is-danger' : '') + '" role="menuitem" data-secondary-action="' + escapeHtml(action.id) + '" data-menu-label="' + escapeHtml(action.label) + '">' +
+          escapeHtml(action.label) +
           '</button>'
         )).join('') +
-	      '</div>';
-	    }
+        '</div>';
+    }
+
+    function renderSecondaryMenu(g, actions) {
+      return '';
+    }
+
+    function refreshSecondaryMenuLayer(g) {
+      const layer = $('menu-layer');
+      if (!layer) return;
+      const actions = secondaryActions(g);
+      layer.innerHTML = secondaryMenuMarkup(g, actions);
+    }
 
     function renderPrimary(g) {
-	      if (!g) return '';
-	      if (g.activeOp) {
-	        const job = jobForOperation(g.activeOp);
+      if (!g) return '';
+      if (g.activeOp) {
+        const job = jobForOperation(g.activeOp);
         const unsafeStreamActive =
           String((g.activeOp && g.activeOp.action) || '').toLowerCase() === 'compress' &&
           String((g.activeOp && g.activeOp.deletePolicy) || '').toLowerCase() === 'stream';
         const destructiveStreamLocked = unsafeStreamActive && job && job.destructiveStreamActive;
-			        const progress = progressTiming(job);
-			        const visual = operationVisual(g.activeOp, job);
-			        const fillPercent = progressFillPercent(progress, visual);
+        const progress = progressTiming(job);
+        const visual = operationVisual(g.activeOp, job);
+        const fillPercent = progressFillPercent(progress, visual);
         const cancelAttrs = destructiveStreamLocked
           ? ' disabled title="Unsafe compression cannot be cancelled after it starts"'
-          : job && job.rollbackRequested
-          ? ' disabled title="Cancel already requested"'
-          : ' title="Cancel operation"';
-		        const percentText = visualShowsPercent(visual, progress)
-		          ? '<span class="progress-percent">' + progress.percent.toFixed(0) + '%</span>'
-		          : '<span class="progress-percent is-empty">...</span>';
-        const throughputHtml = visualShowsThroughput(visual, progress)
-          ? '<span class="progress-time progress-speed">Speed: ' +
-              '<span class="progress-speed-value">' + progress.speedText + '</span></span>' +
-            (progress.countable
-              ? '<span class="progress-time progress-remaining">Remaining: ' +
-                  '<span class="progress-remaining-value">' + progress.remainingText + '</span></span>'
-              : '')
+          : jobCanceling(job)
+            ? ' disabled title="Cancel already requested"'
+            : ' title="Cancel operation"';
+        const percentText = visualShowsPercent(visual, progress)
+          ? '<span class="progress-percent">' + progress.percent.toFixed(0) + '%</span>'
           : '';
-	        return '<div class="active-action-row">' +
-	          '<div class="progress-box is-' + visual.className + '">' +
-	            '<div class="progress-heading">' +
-	              '<span class="progress-label">' + escapeHtml(visual.label) + '</span>' +
-	              percentText +
-	            '</div>' +
-	            '<div class="bar"><span class="progress-fill" style="width:' + fillPercent.toFixed(1) + '%"></span></div>' +
-            '<div class="progress-times">' +
-              '<span class="progress-time progress-elapsed">' + icon('timer') +
-                '<span class="progress-elapsed-value">' + progress.elapsedText + '</span></span>' +
-              throughputHtml +
-	            '</div>' +
-	          '</div>' +
-	          '<button class="more-btn" id="cancel-active" aria-label="Cancel operation"' + cancelAttrs + '>' + icon('close') + '</button>' +
-	        '</div>';
+        const throughputHtml = visualShowsThroughput(visual, progress)
+          ? '<span class="progress-time progress-speed">' +
+          '<span class="progress-speed-value">' + progress.speedText + '</span></span>' +
+          (progress.countable
+            ? '<span class="progress-time progress-remaining">ETA: ' +
+            '<span class="progress-remaining-value">' + progress.remainingText + '</span></span>'
+            : '')
+          : '';
+        return '<div class="active-action-row">' +
+          '<div class="progress-box is-' + visual.className + '">' +
+          '<div class="progress-heading">' +
+          '<span class="progress-label">' + escapeHtml(visual.label) + '</span>' +
+          percentText +
+          '</div>' +
+          '<div class="bar"><span class="progress-fill" style="width:' + fillPercent.toFixed(1) + '%"></span></div>' +
+          '<div class="progress-times">' +
+          '<span class="progress-time progress-elapsed">' + icon('timer') +
+          '<span class="progress-elapsed-value">' + progress.elapsedText + '</span></span>' +
+          throughputHtml +
+          '</div>' +
+          '</div>' +
+          '<button class="more-btn" id="cancel-active" aria-label="Cancel operation"' + cancelAttrs + '>' + icon('close') + '</button>' +
+          '</div>';
       }
       if (g.pendingOp) {
         return '<div class="pending-box"><div class="pending-label">' +
           escapeHtml(pendingOperationLabel(g.pendingOp)) + '</div>' +
           '<button class="small-action" id="cancel-pending">Cancel</button></div>';
       }
-      if (isTryMounting(g)) {
-        return '<div class="pending-box"><div class="pending-label">Mounting</div></div>';
-      }
       const action = actionFor(g);
       if (!action) return '<button class="primary-btn" disabled>Unavailable</button>';
       const primary = '<button class="primary-btn" id="primary-action">' + escapeHtml(actionLabel(g)) + '</button>';
       const actions = secondaryActions(g);
       if (!actions.length) return primary;
-      const expanded = state.secondaryMenuFor === g.titleId ? 'true' : 'false';
+      const expanded = state.secondaryMenuFor === gameInstanceId(g) ? 'true' : 'false';
       return '<div class="action-row">' +
         primary +
         '<button class="more-btn" id="more-actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="' + expanded + '">' +
-          '<span class="more-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
+        '<span class="more-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
         '</button>' +
         renderSecondaryMenu(g, actions) +
-      '</div>';
+        '</div>';
     }
 
     function wirePrimaryControls(g) {
@@ -2402,7 +3010,7 @@
       }
       const cancelActive = $('cancel-active');
       if (cancelActive && g.activeOp) {
-        cancelActive.addEventListener('click', () => cancelActiveJob());
+        cancelActive.addEventListener('click', () => cancelActiveJob(g.activeOp.id));
       }
       const more = $('more-actions');
       if (more) {
@@ -2411,6 +3019,7 @@
           toggleSecondaryMenu(g);
         });
       }
+      refreshSecondaryMenuLayer(g);
 
       document.querySelectorAll('[data-secondary-action]').forEach((item) => {
         item.addEventListener('click', (event) => {
@@ -2465,18 +3074,31 @@
       if (!g || !g.titleId) return;
       const btn = $('remount-path');
       if (btn) btn.disabled = true;
-      setTryMounting(g, true);
-      render();
       try {
-        await api('/api/gc/refresh-mount?titleId=' + encodeURIComponent(g.titleId), {
+        await api('/api/gc/refresh-mount?' + gameQuery(g), {
           method: 'POST'
         });
+        startPollBurst(10000);
         await refreshAll();
-        setTryMounting(g, false);
       } catch (err) {
-        setTryMounting(g, false);
-        render();
-        alert(err.message || 'Could not request ShadowMountPlus mount');
+        alert(err.message || 'Could not mount selected instance');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function startReadSpeedTest(g) {
+      if (!g || !g.titleId) return;
+      const btn = $('read-speed-test');
+      if (btn) btn.disabled = true;
+      try {
+        await api('/api/gc/read-speed-test?' + gameQuery(g), {
+          method: 'POST'
+        });
+        startPollBurst(70000);
+        await refreshAll();
+      } catch (err) {
+        alert(err.message || 'Could not start read speed test');
       } finally {
         if (btn) btn.disabled = false;
       }
@@ -2496,12 +3118,14 @@
     function closeSecondaryMenu() {
       if (!state.secondaryMenuFor) return;
       state.secondaryMenuFor = '';
+      refreshSecondaryMenuLayer(null);
       refreshPrimaryArea(selectedGame());
     }
 
     function toggleSecondaryMenu(g) {
       if (!g) return;
-      state.secondaryMenuFor = state.secondaryMenuFor === g.titleId ? '' : g.titleId;
+      const key = gameInstanceId(g);
+      state.secondaryMenuFor = state.secondaryMenuFor === key ? '' : key;
       refreshPrimaryArea(g);
     }
 
@@ -2510,11 +3134,17 @@
       if (action === 'validate-only') {
         startAction(g, false, 'validate-only');
       } else if (action === 'uncompress') {
-        startAction(g, false, 'uncompress');
+        showUncompressModal(g);
       } else if (action === 'move-usb') {
-        showUsbModal(g);
+        showUsbModal(g, 'move');
       } else if (action === 'move-internal') {
         startMoveToInternal(g);
+      } else if (action === 'copy-usb') {
+        showUsbModal(g, 'copy');
+      } else if (action === 'copy-internal') {
+        startCopyToInternal(g);
+      } else if (action === 'delete-game-data') {
+        showDeleteModal(g);
       }
     }
 
@@ -2543,7 +3173,7 @@
           try {
             await navigator.clipboard.writeText(path);
             return;
-          } catch (clipboardErr) {}
+          } catch (clipboardErr) { }
         }
         alert('Could not copy path');
       }
@@ -2559,36 +3189,45 @@
         detail.innerHTML = '<div class="empty">No games found</div>';
         return;
       }
-      const mounting = isTryMounting(g);
-      const showRemount = (mounting || !!latestMountFailureForGame(g)) &&
-        !g.activeOp && !g.pendingOp && g.sourceKind === 'compressed';
+      const sourceKind = String(g.sourceKind || '').toLowerCase();
+      const showRemount = g.isMounted === false &&
+        !g.activeOp && !g.pendingOp && sourceKind !== 'unknown';
+      const showReadTest = g.isMounted === true &&
+        !g.activeOp && !g.pendingOp && sourceKind !== 'unknown';
       const remountButton = showRemount
-        ? '<button class="remount-path" id="remount-path" aria-label="Try to mount" title="Try to mount"' +
-            (mounting ? ' disabled' : '') + '>' + icon('refresh') +
-            '<span>' + (mounting ? 'Mounting' : 'Try to mount') + '</span></button>'
+        ? '<button class="remount-path" id="remount-path" aria-label="Mount now" title="Mount now"' +
+        '>' + icon('refresh') + '<span>Mount now</span></button>'
         : '';
+      const readSpeedButton = showReadTest
+        ? '<button class="remount-path" id="read-speed-test" aria-label="Test read speed" title="Test read speed">' +
+        icon('timer') + '<span>Read speed</span></button>'
+        : '';
+      const hasPathAction = showRemount || showReadTest;
       detail.innerHTML =
         '<div class="detail-inner">' +
-          '<div class="hero-icon' + heroIconClass(g) + '">' + gameIcon(g, true) + '</div>' +
-          '<h2 class="game-title">' + escapeHtml(g.name || g.titleId) + '</h2>' +
-          '<div class="facts">' +
-            '<span class="chip">' + escapeHtml(g.titleId) + '</span>' +
-            '<span class="chip">' + escapeHtml(g.sourceKind) + '</span>' +
-	            statusChip(g) +
-	            sizeChip(g) +
-		            savedChip(g) +
-            mountNoticeChip(g) +
-			            badBlocksChip(g) +
-		            repairedBlocksChip(g) +
-          '</div>' +
-          '<div class="primary-area">' + renderPrimary(g) + '</div>' +
-          '<div class="path-box">' +
-            '<div class="path-row' + (showRemount ? ' has-remount' : '') + '">' +
-              '<div class="path-line" title="' + escapeHtml(g.sourcePath || '-') + '">' + escapeHtml(g.sourcePath || '-') + '</div>' +
-              remountButton +
-              '<button class="copy-path" id="copy-path" aria-label="Copy path">' + icon('copy') + '</button>' +
-            '</div>' +
-          '</div>' +
+        '<div class="hero-icon' + heroIconClass(g) + '">' + gameIcon(g, true) + '</div>' +
+        '<h2 class="game-title">' + escapeHtml(g.name || g.titleId) + '</h2>' +
+        '<div class="facts">' +
+        '<span class="chip">' + escapeHtml(g.titleId) + '</span>' +
+        storageChip(g) +
+        '<span class="chip">' + escapeHtml(g.sourceKind) + '</span>' +
+        detailMountStateChip(g) +
+        detailStatusChip(g) +
+        sizeChip(g) +
+        savedChip(g) +
+        mountNoticeChip(g) +
+        badBlocksChip(g) +
+        repairedBlocksChip(g) +
+        '</div>' +
+        '<div class="primary-area">' + renderPrimary(g) + '</div>' +
+        '<div class="path-box">' +
+        '<div class="path-row' + (hasPathAction ? ' has-remount' : '') + '">' +
+        '<div class="path-line" title="' + escapeHtml(g.sourcePath || '-') + '">' + escapeHtml(g.sourcePath || '-') + '</div>' +
+        remountButton +
+        readSpeedButton +
+        '<button class="copy-path" id="copy-path" aria-label="Copy path">' + icon('copy') + '</button>' +
+        '</div>' +
+        '</div>' +
         '</div>';
       wirePrimaryControls(g);
       const copyPath = $('copy-path');
@@ -2598,6 +3237,10 @@
       const remountPath = $('remount-path');
       if (remountPath) {
         remountPath.addEventListener('click', () => tryMountGame(g));
+      }
+      const readSpeedTest = $('read-speed-test');
+      if (readSpeedTest) {
+        readSpeedTest.addEventListener('click', () => startReadSpeedTest(g));
       }
     }
 
@@ -2614,8 +3257,8 @@
       body.innerHTML = rows.map((op) => {
         const chipClass = op.status === 'success' ? 'ok' :
           op.status === 'failed' ? 'bad' :
-          op.status === 'running' ? 'run' :
-          op.status === 'pending' ? 'warn' : '';
+            op.status === 'running' ? 'run' :
+              op.status === 'pending' ? 'warn' : '';
         const repairText = repairedBlocksText(op, jobForOperation(op));
         const result = historyResultLabel(op, jobForOperation(op));
         const repairMeta = repairText && result !== repairText ?
@@ -2666,7 +3309,7 @@
     function updateActiveOperationVisual(visual) {
       const g = activeGameForJob();
       if (!g || !visual) return;
-      document.querySelectorAll('[data-active-op-chip="' + g.titleId + '"]').forEach((chip) => {
+      document.querySelectorAll('[data-active-op-chip="' + gameInstanceId(g) + '"]').forEach((chip) => {
         chip.className = 'chip ' + visual.className;
         chip.textContent = visual.label;
       });
@@ -2695,30 +3338,30 @@
         ? operationVisual(g.activeOp, job)
         : { label: 'Running', className: 'run' };
       box.classList.remove('is-compressing', 'is-closing', 'is-mounting', 'is-validating', 'is-repacking',
-        'is-moving', 'is-finalizing', 'is-unpacking', 'is-restoring', 'is-run');
+        'is-moving', 'is-reading', 'is-finalizing', 'is-unpacking', 'is-restoring', 'is-run');
       box.classList.add('is-' + visual.className);
       if (label) {
         label.textContent = visual.label;
       }
-	      if (!percent && label && label.parentNode) {
-	        percent = document.createElement('span');
-	        percent.className = 'progress-percent is-empty';
-	        percent.textContent = '...';
-	        label.parentNode.appendChild(percent);
-	      }
-	      if (percent) {
-	        if (visualShowsPercent(visual, progress)) {
-	          percent.className = 'progress-percent';
-	          percent.textContent = progress.percent.toFixed(0) + '%';
-	        } else {
-	          percent.className = 'progress-percent is-empty';
-	          percent.textContent = '...';
-	        }
-	      }
+      const showPercent = visualShowsPercent(visual, progress);
+      if (!percent && showPercent && label && label.parentNode) {
+        percent = document.createElement('span');
+        percent.className = 'progress-percent';
+        label.parentNode.appendChild(percent);
+      }
+      if (percent) {
+        if (showPercent) {
+          percent.className = 'progress-percent';
+          percent.textContent = progress.percent.toFixed(0) + '%';
+        } else {
+          percent.remove();
+          percent = null;
+        }
+      }
       if (fill) {
         fill.style.width = progressFillPercent(progress, visual).toFixed(1) + '%';
       }
-	      if (elapsed) {
+      if (elapsed) {
         elapsed.textContent = progress.elapsedText;
       }
       const showThroughput = visualShowsThroughput(visual, progress);
@@ -2746,18 +3389,22 @@
       if (refreshAllInFlight) return;
       refreshAllInFlight = true;
       try {
-        const [games, job, history] = await Promise.all([
+        const [games, history] = await Promise.all([
           api('/api/gc/games'),
-          api('/api/gc/job'),
           api('/api/gc/history')
         ]);
         state.games = sortGamesForList(games.games);
-        state.job = job;
-        updateSpeedSample(job);
         state.history = history.history || [];
-        if (!state.selected && state.games[0]) selectGame(state.games[0].titleId, false, false);
-        if (state.selected && !state.games.some((g) => g.titleId === state.selected) && state.games[0]) {
-          selectGame(state.games[0].titleId, true, false);
+        if (!state.selected && state.games[0]) {
+          selectGame(gameInstanceId(state.games[0]), false, false);
+        }
+        if (state.selected && !state.games.some((g) => gameInstanceId(g) === state.selected)) {
+          const legacy = state.games.find((g) => String(g.titleId || '') === String(state.selected || ''));
+          if (legacy) {
+            selectGame(gameInstanceId(legacy), true, false);
+          } else if (state.games[0]) {
+            selectGame(gameInstanceId(state.games[0]), true, false);
+          }
         }
         render();
         updateProgressOnly();
@@ -2817,21 +3464,30 @@
 
     function renderUsbList() {
       const body = $('usb-body');
-      if (!state.usb.length) {
-        body.innerHTML = '<div class="empty">No USB storage found</div>';
+      const copyMode = state.moveMode === 'copy';
+      const targets = state.moveGame
+        ? state.usb.filter((usb) => !pathUnderRoot(state.moveGame.sourcePath, usb.path))
+        : state.usb;
+      if (!targets.length) {
+        body.innerHTML = '<div class="empty">No other external storage with 10 MB free</div>';
         return;
       }
-      body.innerHTML = state.usb.map((usb) => (
+      body.innerHTML = targets.map((usb) => (
         '<button class="usb-row" data-id="' + escapeHtml(usb.id) + '">' +
-          '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
-          '<div class="history-meta">' + escapeHtml(usb.path) + '</div>' +
-          '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes) + '</div></div>' +
-          '<span class="chip">Select</span>' +
+        '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
+        '<div class="history-meta">' + escapeHtml(usb.path) + '</div>' +
+        '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes) + '</div></div>' +
+        '<span class="chip">Select</span>' +
         '</button>'
       )).join('');
       body.querySelectorAll('.usb-row').forEach((row) => {
         row.addEventListener('click', () => {
-          if (state.moveGame) startMoveToUsb(state.moveGame, row.getAttribute('data-id'));
+          if (!state.moveGame) return;
+          if (copyMode) {
+            startCopyToUsb(state.moveGame, row.getAttribute('data-id'));
+          } else {
+            startMoveToUsb(state.moveGame, row.getAttribute('data-id'));
+          }
         });
       });
     }
@@ -2840,42 +3496,329 @@
       return (state.usb || []).find((usb) => usb.id === state.compressUsbId) || null;
     }
 
+    function usbPickerOptionHtml(usb, attrName, selectedId) {
+      const selected = usb.id === selectedId;
+      return '<button class="usb-picker-option' + (selected ? ' is-selected' : '') +
+        '" type="button" ' + attrName + '="' + escapeHtml(usb.id) + '">' +
+        '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
+        '<div class="history-meta">' + escapeHtml(usb.path) + '</div>' +
+        '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' +
+        shortSize(usb.totalBytes) + '</div></div>' +
+        '<span class="chip' + (selected ? ' run' : '') + '">' +
+        (selected ? 'Selected' : 'Select') + '</span>' +
+        '</button>';
+    }
+
+    function usbPickerTriggerHtml(usb, expanded, attrName) {
+      return '<button class="usb-picker-trigger" type="button" ' + attrName +
+        ' aria-haspopup="listbox" aria-expanded="' + (expanded ? 'true' : 'false') + '">' +
+        '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
+        '<div class="history-meta">' + escapeHtml(usb.path) + '</div>' +
+        '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' +
+        shortSize(usb.totalBytes) + '</div></div>' +
+        '<span class="chip">' + (expanded ? 'Close' : 'Change') + '</span>' +
+        '</button>';
+    }
+
     function renderCompressUsbSelect() {
-      const select = $('compress-usb-select');
+      const picker = $('compress-usb-picker');
       const meta = $('compress-usb-meta');
-      if (!select || !meta) return;
+      if (!picker || !meta) return;
       if (state.compressUsbLoading) {
-        select.innerHTML = '<option value="">Loading USB storage</option>';
-        select.disabled = true;
+        picker.innerHTML = '<div class="usb-picker-empty">Loading external storage</div>';
         meta.textContent = '';
         return;
       }
       if (!state.usb.length) {
-        select.innerHTML = '<option value="">No USB storage found</option>';
-        select.disabled = true;
-        meta.textContent = '';
+        state.compressUsbId = '';
+        state.compressUsbOpen = false;
+        picker.innerHTML = '<div class="usb-picker-empty">No external storage with 10 MB free</div>';
+        meta.textContent = 'Connect external storage with at least 10 MB free';
         return;
       }
       if (!state.compressUsbId || !selectedCompressUsb()) {
         state.compressUsbId = state.usb[0].id || '';
       }
-      select.disabled = false;
-      select.innerHTML = state.usb.map((usb) => (
-        '<option value="' + escapeHtml(usb.id) + '">' +
-        escapeHtml(usb.name + ' - ' + shortSize(usb.freeBytes) + ' free') +
-        '</option>'
-      )).join('');
-      select.value = state.compressUsbId;
       const usb = selectedCompressUsb();
+      const open = !!state.compressUsbOpen;
+      picker.innerHTML =
+        usbPickerTriggerHtml(usb, open, 'data-compress-usb-toggle="1"') +
+        (open
+          ? '<div class="usb-picker-menu" role="listbox">' +
+          state.usb.map((item) => usbPickerOptionHtml(item, 'data-compress-usb-id', state.compressUsbId)).join('') +
+          '</div>'
+          : '');
+      const trigger = picker.querySelector('[data-compress-usb-toggle]');
+      if (trigger) {
+        trigger.addEventListener('click', () => {
+          state.compressUsbOpen = !state.compressUsbOpen;
+          renderCompressUsbSelect();
+        });
+      }
+      picker.querySelectorAll('[data-compress-usb-id]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.compressUsbId = button.getAttribute('data-compress-usb-id') || '';
+          state.compressUsbOpen = false;
+          updateCompressModalSelection();
+        });
+      });
       meta.textContent = usb
         ? usb.path + ' - ' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes)
         : '';
     }
 
-    async function showUsbModal(g) {
+    function basenameFromPath(path) {
+      const value = String(path || '');
+      const idx = value.lastIndexOf('/');
+      return idx >= 0 ? value.slice(idx + 1) : value;
+    }
+
+    function selectedUncompressUsb() {
+      return (state.usb || []).find((usb) => usb.id === state.uncompressUsbId) || null;
+    }
+
+    function renderUncompressUsbSelect() {
+      const picker = $('uncompress-usb-picker');
+      const meta = $('uncompress-usb-meta');
+      if (!picker || !meta) return;
+      if (state.uncompressUsbLoading) {
+        picker.innerHTML = '<div class="usb-picker-empty">Loading external storage</div>';
+        meta.textContent = '';
+        return;
+      }
+      if (!state.usb.length) {
+        state.uncompressUsbId = '';
+        state.uncompressUsbOpen = false;
+        picker.innerHTML = '<div class="usb-picker-empty">No external storage with 10 MB free</div>';
+        meta.textContent = 'Connect external storage with at least 10 MB free';
+        return;
+      }
+      if (!state.uncompressUsbId || !selectedUncompressUsb()) {
+        state.uncompressUsbId = state.usb[0].id || '';
+      }
+      const usb = selectedUncompressUsb();
+      const open = !!state.uncompressUsbOpen;
+      picker.innerHTML =
+        usbPickerTriggerHtml(usb, open, 'data-uncompress-usb-toggle="1"') +
+        (open
+          ? '<div class="usb-picker-menu" role="listbox">' +
+          state.usb.map((item) => usbPickerOptionHtml(item, 'data-uncompress-usb-id', state.uncompressUsbId)).join('') +
+          '</div>'
+          : '');
+      const trigger = picker.querySelector('[data-uncompress-usb-toggle]');
+      if (trigger) {
+        trigger.addEventListener('click', () => {
+          state.uncompressUsbOpen = !state.uncompressUsbOpen;
+          renderUncompressUsbSelect();
+        });
+      }
+      picker.querySelectorAll('[data-uncompress-usb-id]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.uncompressUsbId = button.getAttribute('data-uncompress-usb-id') || '';
+          state.uncompressUsbOpen = false;
+          updateUncompressModalSelection();
+        });
+      });
+      meta.textContent = usb
+        ? usb.path + ' - ' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes)
+        : '';
+    }
+
+    function uncompressImageLabel(plan) {
+      const type = String((plan && plan.nestedType) || '').toLowerCase();
+      if (type === 'exfat') return 'exFAT image';
+      if (type === 'pfs') return 'PFS image';
+      return 'Image';
+    }
+
+    function updateUncompressModalSelection() {
+      const g = state.uncompressGame;
+      const plan = state.uncompressPlan || {};
+      const sourceStorage = String(plan.sourceStorage || (g && g.storage) || '').toLowerCase();
+      const showInternal = sourceStorage !== 'internal';
+      const showUsb = sourceStorage !== 'usb';
+      if (!showInternal && state.uncompressDestination === 'internal') {
+        state.uncompressDestination = 'inplace';
+      }
+      if (!showUsb && state.uncompressDestination === 'usb') {
+        state.uncompressDestination = 'inplace';
+      }
+      if (state.uncompressDestination !== 'usb') {
+        state.uncompressUsbOpen = false;
+      }
+      if (state.uncompressDestination === 'inplace') {
+        state.uncompressDeletePolicy = 'after';
+      }
+      const movingToUsb = state.uncompressDestination === 'usb';
+      const movingElsewhere = state.uncompressDestination !== 'inplace';
+      $('uncompress-files-name').textContent = plan.filesOutputPath
+        ? basenameFromPath(plan.filesOutputPath)
+        : 'App folder';
+      $('uncompress-image-title').textContent = uncompressImageLabel(plan);
+      $('uncompress-image-name').textContent = plan.imageOutputPath
+        ? basenameFromPath(plan.imageOutputPath)
+        : (state.uncompressPlanError ||
+          (state.uncompressPlanLoading ? 'Detecting image type' : 'Image output'));
+      $('uncompress-inplace-meta').textContent = movingElsewhere
+        ? 'Write next to the compressed image'
+        : 'Write next to the compressed image and remove it after remount';
+      $('uncompress-internal-row').classList.toggle('is-hidden', !showInternal);
+      $('uncompress-usb-row').classList.toggle('is-hidden', !showUsb);
+      $('uncompress-usb-panel').classList.toggle('hidden', !movingToUsb);
+      $('uncompress-source-title').classList.toggle('is-hidden', !movingElsewhere);
+      $('uncompress-policy-grid').classList.toggle('is-hidden', !movingElsewhere);
+      renderUncompressUsbSelect();
+      document.querySelectorAll('[data-uncompress-mode], [data-uncompress-destination], [data-uncompress-policy]').forEach((button) => {
+        const mode = button.getAttribute('data-uncompress-mode');
+        const destination = button.getAttribute('data-uncompress-destination');
+        const policy = button.getAttribute('data-uncompress-policy');
+        let selected = false;
+        let disabled = false;
+        if (mode) {
+          selected = mode === state.uncompressMode;
+          disabled = state.uncompressPlanLoading || !!state.uncompressPlanError;
+        } else if (destination) {
+          selected = destination === state.uncompressDestination;
+          disabled = (destination === 'internal' && !showInternal) ||
+            (destination === 'usb' && (!showUsb || (!state.uncompressUsbLoading && !state.usb.length)));
+        } else if (policy) {
+          selected = policy === state.uncompressDeletePolicy;
+          disabled = !movingElsewhere;
+        }
+        button.disabled = disabled;
+        button.classList.toggle('is-disabled', disabled);
+        button.classList.toggle('is-selected', selected && !disabled);
+        const chip = button.querySelector('.chip');
+        if (chip) {
+          chip.textContent = disabled ? 'Unavailable' : (selected ? 'Selected' : 'Select');
+          chip.classList.toggle('run', selected && !disabled);
+          chip.classList.toggle('bad', disabled);
+        }
+      });
+      $('uncompress-start').disabled = !g ||
+        state.uncompressPlanLoading ||
+        !!state.uncompressPlanError ||
+        (movingToUsb && !state.uncompressUsbId);
+    }
+
+    async function showUncompressModal(g) {
+      state.uncompressGame = g;
+      state.uncompressPlan = null;
+      state.uncompressPlanError = '';
+      state.uncompressPlanLoading = true;
+      state.uncompressMode = 'image';
+      state.uncompressDestination = 'inplace';
+      state.uncompressDeletePolicy = 'after';
+      state.uncompressUsbId = '';
+      state.uncompressUsbLoading = true;
+      state.uncompressUsbOpen = false;
+      $('uncompress-title').textContent = 'Uncompress ' + (g.name || g.titleId);
+      updateUncompressModalSelection();
+      $('uncompress-modal').classList.remove('hidden');
+      Promise.all([
+        api('/api/gc/uncompress-plan?' + gameQuery(g))
+          .then((data) => {
+            state.uncompressPlan = data || {};
+          })
+          .catch((err) => {
+            state.uncompressPlanError = err.message;
+            $('uncompress-image-name').textContent = err.message;
+          })
+          .finally(() => {
+            state.uncompressPlanLoading = false;
+            updateUncompressModalSelection();
+          }),
+        api('/api/gc/usb')
+          .then((data) => {
+            state.usb = data.usb || [];
+            if (!selectedUncompressUsb()) state.uncompressUsbId = state.usb[0] ? state.usb[0].id : '';
+          })
+          .catch(() => {
+            state.usb = [];
+            state.uncompressUsbId = '';
+          })
+          .finally(() => {
+            state.uncompressUsbLoading = false;
+            updateUncompressModalSelection();
+          })
+      ]).catch(() => { });
+    }
+
+    function closeUncompressModal() {
+      $('uncompress-modal').classList.add('hidden');
+      state.uncompressGame = null;
+      state.uncompressPlan = null;
+      state.uncompressPlanLoading = false;
+      state.uncompressPlanError = '';
+      state.uncompressDestination = 'inplace';
+      state.uncompressDeletePolicy = 'after';
+      state.uncompressUsbId = '';
+      state.uncompressUsbLoading = false;
+      state.uncompressUsbOpen = false;
+    }
+
+    function deleteSourceLabel(g) {
+      const kind = String((g && g.sourceKind) || '').toLowerCase();
+      if (kind === 'compressed') return 'compressed image';
+      if (kind === 'image') return 'image file';
+      if (kind === 'folder') return 'game folder';
+      return 'game data';
+    }
+
+    function updateDeleteModal() {
+      const g = state.deleteGame;
+      $('delete-confirm').disabled = state.deleteBusy || !g;
+      $('delete-cancel').disabled = state.deleteBusy;
+      $('delete-close').disabled = state.deleteBusy;
+      if (!g) return;
+      $('delete-title').textContent = 'Delete ' + (g.name || g.titleId);
+      $('delete-game-name').textContent = g.name || g.titleId || 'Game data';
+      $('delete-warning-text').textContent =
+        'This permanently deletes the selected ' + deleteSourceLabel(g) +
+        ' from storage. This cannot be undone.';
+      $('delete-game-path').textContent = g.sourcePath || '';
+    }
+
+    function showDeleteModal(g) {
+      state.deleteGame = g;
+      state.deleteBusy = false;
+      updateDeleteModal();
+      $('delete-modal').classList.remove('hidden');
+    }
+
+    function closeDeleteModal() {
+      if (state.deleteBusy) return;
+      $('delete-modal').classList.add('hidden');
+      state.deleteGame = null;
+    }
+
+    async function confirmDeleteGameData() {
+      const g = state.deleteGame;
+      if (!g || state.deleteBusy) return;
+      state.deleteBusy = true;
+      updateDeleteModal();
+      try {
+        await api('/api/gc/delete-game-data?' + gameQuery(g) + '&confirm=delete', {
+          method: 'POST'
+        });
+        state.deleteBusy = false;
+        closeDeleteModal();
+        startPollBurst(8000);
+        await refreshAll();
+      } catch (err) {
+        state.deleteBusy = false;
+        updateDeleteModal();
+        alert(err.message);
+      }
+    }
+
+    async function showUsbModal(g, mode) {
       state.moveGame = g;
-      $('usb-title').textContent = 'Move ' + (g.name || g.titleId) + ' to USB';
-      $('usb-body').innerHTML = '<div class="empty">Loading USB storage</div>';
+      state.moveMode = mode === 'copy' ? 'copy' : 'move';
+      $('usb-title').textContent =
+        (state.moveMode === 'copy' ? 'Copy ' : 'Move ') +
+        (g.name || g.titleId) + ' to External Storage';
+      $('usb-body').innerHTML = '<div class="empty">Loading external storage</div>';
       $('usb-modal').classList.remove('hidden');
       try {
         const data = await api('/api/gc/usb');
@@ -2889,17 +3832,31 @@
     function closeUsbModal() {
       $('usb-modal').classList.add('hidden');
       state.moveGame = null;
+      state.moveMode = 'move';
     }
 
     function modalSizeText(bytes) {
       return shortSize(bytes).replace(/\.00 /, ' ');
     }
 
+    function storageIsExternal(value) {
+      const storage = String(value || '').toLowerCase();
+      return storage === 'external' || storage === 'usb' || storage === 'm2';
+    }
+
     function safeSpaceText(g) {
       if (state.compressDestination === 'usb') {
         const usb = selectedCompressUsb();
-        if (usb) return 'Writes to ' + usb.name + '; original is removed after verification';
-        return 'Writes to selected USB; original is removed after verification';
+        const retention = state.compressSourcePolicy === 'keep'
+          ? 'keeps original source'
+          : 'original is removed after verification';
+        if (usb) return 'Writes to ' + usb.name + '; ' + retention;
+        return 'Writes to selected storage; ' + retention;
+      }
+      if (state.compressDestination === 'internal') {
+        return state.compressSourcePolicy === 'keep'
+          ? 'Writes to Internal SSD; keeps original source'
+          : 'Writes to Internal SSD; original is removed after verification';
       }
       if (!g || g.sizePending || !Number(g.requiredBytes || 0)) {
         return 'Keeps the original until verified; needs measured source-size free';
@@ -2912,8 +3869,9 @@
     }
 
     function destructiveSpaceText(g) {
-      if (state.compressDestination === 'usb') {
-        return 'Not available when writing to USB';
+      if (state.compressDestination === 'usb' ||
+        state.compressDestination === 'internal') {
+        return 'Not available when moving from one storage to another';
       }
       const minFree = Number((g && g.streamMinFreeBytes) || 1073741824);
       if (!g || !g.canStreamDelete) return 'Not available for image-file compression';
@@ -2927,28 +3885,57 @@
 
     function updateCompressModalSelection() {
       const g = state.compressGame;
-      const movingToUsb = state.compressDestination === 'usb';
-      const destructiveUnavailable = movingToUsb || !(g && g.canStreamDelete);
+      const sourceStorage = String((g && g.storage) || '').toLowerCase();
+      const showInternal = sourceStorage !== 'internal';
+      const showUsb = !storageIsExternal(sourceStorage);
+      if (!showInternal && state.compressDestination === 'internal') {
+        state.compressDestination = 'keep';
+      }
+      if (!showUsb && state.compressDestination === 'usb') {
+        state.compressDestination = 'keep';
+      }
+      const effectiveMovingToUsb = state.compressDestination === 'usb';
+      const effectiveMovingToInternal = state.compressDestination === 'internal';
+      const movingElsewhere = effectiveMovingToUsb || effectiveMovingToInternal;
+      const destructiveUnavailable =
+        effectiveMovingToUsb || effectiveMovingToInternal || !(g && g.canStreamDelete);
       if (destructiveUnavailable && state.compressDeletePolicy === 'stream') {
         state.compressDeletePolicy = 'after';
       }
+      if (!movingElsewhere) {
+        state.compressSourcePolicy = 'after';
+      }
+      if (!effectiveMovingToUsb) {
+        state.compressUsbOpen = false;
+      }
       $('format-safe-space').textContent = safeSpaceText(g);
       $('format-stream-space').textContent = destructiveSpaceText(g);
-      $('compress-usb-panel').classList.toggle('hidden', !movingToUsb);
+      $('compress-usb-panel').classList.toggle('hidden', !effectiveMovingToUsb);
+      $('compress-source-title').classList.toggle('is-hidden', !movingElsewhere);
+      $('compress-source-grid').classList.toggle('is-hidden', !movingElsewhere);
       renderCompressUsbSelect();
-      document.querySelectorAll('[data-compress-format], [data-compress-profile], [data-compress-policy], [data-compress-destination]').forEach((button) => {
+      document.querySelectorAll('[data-compress-format], [data-compress-profile], [data-compress-policy], [data-compress-source-policy], [data-compress-destination]').forEach((button) => {
         const format = button.getAttribute('data-compress-format');
         const profile = button.getAttribute('data-compress-profile');
         const policy = button.getAttribute('data-compress-policy');
+        const sourcePolicy = button.getAttribute('data-compress-source-policy');
         const destination = button.getAttribute('data-compress-destination');
+        const hiddenDestination =
+          (destination === 'internal' && !showInternal) ||
+          (destination === 'usb' && !showUsb);
         const selected = format
           ? format === state.compressFormat
           : (profile
-              ? profile === state.compressProfile
-              : (destination
-                  ? destination === state.compressDestination
-                  : policy === state.compressDeletePolicy));
-        const disabled = policy === 'stream' && destructiveUnavailable;
+            ? profile === state.compressProfile
+            : (destination
+              ? destination === state.compressDestination
+              : (sourcePolicy
+                ? sourcePolicy === state.compressSourcePolicy
+                : policy === state.compressDeletePolicy)));
+        const disabled = hiddenDestination ||
+          (policy === 'stream' && destructiveUnavailable) ||
+          (sourcePolicy && !movingElsewhere);
+        button.classList.toggle('is-hidden', hiddenDestination);
         button.disabled = disabled;
         button.classList.toggle('is-disabled', disabled);
         button.classList.toggle('is-selected', selected && !disabled);
@@ -2959,19 +3946,22 @@
           chip.classList.toggle('bad', disabled);
         }
       });
-      $('format-start').disabled = !g || (movingToUsb && !state.compressUsbId);
+      $('format-start').disabled =
+        !g || (state.compressDestination === 'usb' && !state.compressUsbId);
     }
 
     function showCompressFormatModal(g) {
       state.compressGame = g;
-      state.compressFormat = 'pfs';
+      state.compressFormat = 'exfat';
       state.compressProfile = 'space';
       state.compressDeletePolicy = 'after';
+      state.compressSourcePolicy = 'after';
       state.compressDestination = 'keep';
       state.compressUsbId = '';
       state.compressUsbLoading = false;
+      state.compressUsbOpen = false;
       $('format-title').textContent = 'Compress ' + (g.name || g.titleId);
-      $('format-pfs-name').textContent = 'pfs_image.dat';
+      $('format-pfs-name').textContent = 'Experimental - pfs_image.dat';
       $('format-exfat-name').textContent = (g.titleId || '<TITLE_ID>') + '.exfat';
       updateCompressModalSelection();
       $('format-modal').classList.remove('hidden');
@@ -2996,8 +3986,10 @@
       $('format-modal').classList.add('hidden');
       state.compressGame = null;
       state.compressDestination = 'keep';
+      state.compressSourcePolicy = 'after';
       state.compressUsbId = '';
       state.compressUsbLoading = false;
+      state.compressUsbOpen = false;
       updateCompressModalSelection();
     }
 
@@ -3018,35 +4010,86 @@
 
     async function startMoveToUsb(g, usbId) {
       if (!g || !usbId) return;
-      await startMove('/api/gc/move-to-usb?titleId=' + encodeURIComponent(g.titleId) +
+      await startMove('/api/gc/move-to-usb?' + gameQuery(g) +
         '&usbId=' + encodeURIComponent(usbId));
     }
 
     async function startMoveToInternal(g) {
       if (!g) return;
-      await startMove('/api/gc/move-to-internal?titleId=' + encodeURIComponent(g.titleId));
+      await startMove('/api/gc/move-to-internal?' + gameQuery(g));
+    }
+
+    async function startCopyToUsb(g, usbId) {
+      if (!g || !usbId) return;
+      await startMove('/api/gc/copy-to-usb?' + gameQuery(g) +
+        '&usbId=' + encodeURIComponent(usbId));
+    }
+
+    async function startCopyToInternal(g) {
+      if (!g) return;
+      await startMove('/api/gc/copy-to-internal?' + gameQuery(g));
     }
 
     async function startSelectedCompress() {
       const g = state.compressGame;
       const format = state.compressFormat;
       const profile = state.compressProfile;
-      const deletePolicy = state.compressDeletePolicy;
-      const usbId = state.compressDestination === 'usb' ? state.compressUsbId : '';
+      const destination = state.compressDestination || 'keep';
+      const movingElsewhere = destination === 'usb' || destination === 'internal';
+      const deletePolicy = movingElsewhere
+        ? (state.compressSourcePolicy === 'keep' ? 'keep' : 'after')
+        : state.compressDeletePolicy;
+      const usbId = destination === 'usb' ? state.compressUsbId : '';
       if (deletePolicy === 'stream' && (!g || !g.canStreamDelete)) {
         updateCompressModalSelection();
         return;
       }
-      if (state.compressDestination === 'usb' && !usbId) {
+      if (destination === 'usb' && !usbId) {
         updateCompressModalSelection();
         return;
       }
       closeCompressFormatModal();
       if (!g || (format !== 'pfs' && format !== 'exfat')) return;
-      await startAction(g, false, 'compress', format, deletePolicy, profile, usbId);
+      await startAction(g, false, 'compress', format, deletePolicy, profile, usbId, destination);
     }
 
-    async function startAction(g, confirmStream, overrideAction, compressFormat, deletePolicy, compressionProfile, usbId) {
+    async function startSelectedUncompress() {
+      const g = state.uncompressGame;
+      if (!g || state.uncompressPlanLoading || state.uncompressPlanError) {
+        updateUncompressModalSelection();
+        return;
+      }
+      const mode = state.uncompressMode === 'image' ? 'image' : 'app';
+      const destination = state.uncompressDestination || 'inplace';
+      const deletePolicy = destination === 'inplace'
+        ? 'after'
+        : (state.uncompressDeletePolicy === 'after' ? 'after' : 'keep');
+      const usbId = destination === 'usb' ? state.uncompressUsbId : '';
+      if (destination === 'usb' && !usbId) {
+        updateUncompressModalSelection();
+        return;
+      }
+      let url = '/api/gc/uncompress?' + gameQuery(g) +
+        '&mode=' + encodeURIComponent(mode) +
+        '&destination=' + encodeURIComponent(destination) +
+        '&deletePolicy=' + encodeURIComponent(deletePolicy);
+      if (usbId) url += '&usbId=' + encodeURIComponent(usbId);
+      closeUncompressModal();
+      try {
+        await api(url, { method: 'POST' });
+        startPollBurst(6000);
+        await refreshAll();
+      } catch (err) {
+        const data = err.data || {};
+        if (data.lowSpace) {
+          alert('Not enough free storage.\n\nFree ' + shortSize(data.extraBytes || 0) + ' more on the target storage.');
+        } else {
+          alert(err.message);
+        }
+      }
+    }
+
+    async function startAction(g, confirmStream, overrideAction, compressFormat, deletePolicy, compressionProfile, usbId, compressionDestination) {
       const action = overrideAction || actionFor(g);
       if (!action) return;
       if (action === 'compress' && !compressFormat) {
@@ -3054,19 +4097,22 @@
         return;
       }
       let url = '';
-	      if (action === 'compress') {
-	        url = '/api/gc/compress?titleId=' + encodeURIComponent(g.titleId) +
-	          '&format=' + encodeURIComponent(compressFormat);
-	        if (deletePolicy) url += '&deletePolicy=' + encodeURIComponent(deletePolicy);
-	        if (compressionProfile) url += '&profile=' + encodeURIComponent(compressionProfile);
-	        if (usbId) url += '&usbId=' + encodeURIComponent(usbId);
-	      } else if (action === 'uncompress') {
-	        url = '/api/gc/uncompress?titleId=' + encodeURIComponent(g.titleId);
-	      } else if (action === 'validate-only') {
-	        url = '/api/gc/validate-only?titleId=' + encodeURIComponent(g.titleId);
-	      } else {
-	        url = '/api/gc/validate-repair?titleId=' + encodeURIComponent(g.titleId);
-	      }
+      if (action === 'compress') {
+        url = '/api/gc/compress?' + gameQuery(g) +
+          '&format=' + encodeURIComponent(compressFormat);
+        if (deletePolicy) url += '&deletePolicy=' + encodeURIComponent(deletePolicy);
+        if (compressionProfile) url += '&profile=' + encodeURIComponent(compressionProfile);
+        if (compressionDestination && compressionDestination !== 'keep') {
+          url += '&destination=' + encodeURIComponent(compressionDestination);
+        }
+        if (usbId) url += '&usbId=' + encodeURIComponent(usbId);
+      } else if (action === 'uncompress') {
+        url = '/api/gc/uncompress?' + gameQuery(g);
+      } else if (action === 'validate-only') {
+        url = '/api/gc/validate-only?' + gameQuery(g);
+      } else {
+        url = '/api/gc/validate-repair?' + gameQuery(g);
+      }
       if (confirmStream) url += '&confirmStream=1';
       try {
         await api(url, { method: 'POST' });
@@ -3093,7 +4139,7 @@
           if (data.canStreamDelete) {
             const msg = 'Not enough free storage for the safer path.\n\nDelete while processing can damage the original source if the operation stops.\n\n' + base;
             if (confirm(msg)) {
-              await startAction(g, true, overrideAction, compressFormat, deletePolicy, compressionProfile, usbId);
+              await startAction(g, true, overrideAction, compressFormat, deletePolicy, compressionProfile, usbId, compressionDestination);
               return;
             }
           } else {
@@ -3110,9 +4156,27 @@
       await refreshAll();
     }
 
-    async function cancelActiveJob() {
+    async function cancelActiveJob(activeId) {
+      const id = activeId || String((state.job && state.job.activeId) || '');
+      if (id) {
+        cancelingActiveId = id;
+        if (state.job && String(state.job.activeId || '') === id) {
+          state.job.cancelRequested = true;
+        }
+        renderDetail(true);
+        renderHistory(true);
+        updateProgressOnly();
+      }
       await api('/api/gc/job/cancel', { method: 'POST' })
-        .catch((err) => alert(err.message));
+        .catch((err) => {
+          if (id && cancelingActiveId === id) cancelingActiveId = '';
+          if (state.job && String(state.job.activeId || '') === id) {
+            state.job.cancelRequested = false;
+          }
+          renderDetail(true);
+          renderHistory(true);
+          alert(err.message);
+        });
       startPollBurst(8000);
       await refreshAll();
     }
@@ -3125,6 +4189,8 @@
       $('history-close').innerHTML = icon('close');
       $('usb-close').innerHTML = icon('close');
       $('format-close').innerHTML = icon('close');
+      $('uncompress-close').innerHTML = icon('close');
+      $('delete-close').innerHTML = icon('close');
 
       $('info-top').addEventListener('click', () => $('info-modal').classList.remove('hidden'));
       $('info-close').addEventListener('click', () => $('info-modal').classList.add('hidden'));
@@ -3132,9 +4198,13 @@
       $('history-close').addEventListener('click', () => $('history-modal').classList.add('hidden'));
       $('usb-close').addEventListener('click', closeUsbModal);
       $('format-close').addEventListener('click', closeCompressFormatModal);
+      $('uncompress-close').addEventListener('click', closeUncompressModal);
+      $('delete-close').addEventListener('click', closeDeleteModal);
+      $('delete-cancel').addEventListener('click', closeDeleteModal);
+      $('delete-confirm').addEventListener('click', confirmDeleteGameData);
       document.querySelectorAll('[data-compress-format]').forEach((button) => {
         button.addEventListener('click', () => {
-          state.compressFormat = button.getAttribute('data-compress-format') || 'pfs';
+          state.compressFormat = button.getAttribute('data-compress-format') || 'exfat';
           updateCompressModalSelection();
         });
       });
@@ -3151,6 +4221,13 @@
           updateCompressModalSelection();
         });
       });
+      document.querySelectorAll('[data-compress-source-policy]').forEach((button) => {
+        button.addEventListener('click', () => {
+          if (button.disabled) return;
+          state.compressSourcePolicy = button.getAttribute('data-compress-source-policy') || 'after';
+          updateCompressModalSelection();
+        });
+      });
       document.querySelectorAll('[data-compress-destination]').forEach((button) => {
         button.addEventListener('click', () => {
           state.compressDestination = button.getAttribute('data-compress-destination') || 'keep';
@@ -3160,30 +4237,64 @@
           updateCompressModalSelection();
         });
       });
-      $('compress-usb-select').addEventListener('change', (event) => {
-        state.compressUsbId = event.target.value || '';
-        updateCompressModalSelection();
-      });
       $('format-start').addEventListener('click', startSelectedCompress);
+      document.querySelectorAll('[data-uncompress-mode]').forEach((button) => {
+        button.addEventListener('click', () => {
+          if (button.disabled) return;
+          state.uncompressMode = button.getAttribute('data-uncompress-mode') || 'image';
+          updateUncompressModalSelection();
+        });
+      });
+      document.querySelectorAll('[data-uncompress-destination]').forEach((button) => {
+        button.addEventListener('click', () => {
+          if (button.disabled) return;
+          state.uncompressDestination = button.getAttribute('data-uncompress-destination') || 'inplace';
+          if (state.uncompressDestination === 'usb' && !state.uncompressUsbId && state.usb[0]) {
+            state.uncompressUsbId = state.usb[0].id || '';
+          }
+          if (state.uncompressDestination !== 'inplace') {
+            state.uncompressDeletePolicy = 'keep';
+          }
+          updateUncompressModalSelection();
+        });
+      });
+      document.querySelectorAll('[data-uncompress-policy]').forEach((button) => {
+        button.addEventListener('click', () => {
+          if (button.disabled) return;
+          state.uncompressDeletePolicy = button.getAttribute('data-uncompress-policy') || 'keep';
+          updateUncompressModalSelection();
+        });
+      });
+      $('uncompress-start').addEventListener('click', startSelectedUncompress);
       document.querySelectorAll('.modal-backdrop').forEach((modal) => {
         modal.addEventListener('click', (event) => {
           if (event.target !== modal) return;
           if (modal.id === 'usb-modal') closeUsbModal();
           else if (modal.id === 'format-modal') closeCompressFormatModal();
+          else if (modal.id === 'uncompress-modal') closeUncompressModal();
+          else if (modal.id === 'delete-modal') closeDeleteModal();
           else modal.classList.add('hidden');
         });
       });
       document.addEventListener('click', (event) => {
         if (!state.secondaryMenuFor) return;
+        if (event.target.closest('.secondary-menu')) return;
         if (event.target.closest('.action-row')) return;
         closeSecondaryMenu();
       });
       document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') closeSecondaryMenu();
+        if (event.key === 'Escape') {
+          closeSecondaryMenu();
+          closeUncompressModal();
+          closeDeleteModal();
+        }
       });
       window.addEventListener('resize', () => {
         if (state.secondaryMenuFor) positionSecondaryMenu();
       });
+      window.addEventListener('scroll', () => {
+        if (state.secondaryMenuFor) positionSecondaryMenu();
+      }, true);
 
       refreshAll();
       setInterval(refreshJob, 1200);
@@ -3191,4 +4302,5 @@
     });
   </script>
 </body>
+
 </html>

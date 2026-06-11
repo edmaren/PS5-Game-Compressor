@@ -314,14 +314,17 @@ diag_request(const http_request_t *req) {
                    "\"/api/control/handoff-state\","
                    "\"/api/control/handoff-shutdown\","
                    "\"/api/gc/games\",\"/api/gc/usb\","
-	                   "\"/api/gc/history\",\"/api/gc/job\","
-	                   "\"/api/gc/job/cancel\",\"/api/gc/queue/cancel\","
-	                   "\"/api/gc/bad-blocks\","
-	                   "\"/api/gc/compress\",\"/api/gc/uncompress\","
+		                   "\"/api/gc/history\",\"/api/gc/job\","
+		                   "\"/api/gc/job/cancel\",\"/api/gc/queue/cancel\","
+		                   "\"/api/gc/bad-blocks\","
+		                   "\"/api/gc/uncompress-plan\","
+		                   "\"/api/gc/compress\",\"/api/gc/uncompress\","
 	                   "\"/api/gc/validate-repair\",\"/api/gc/validate-only\","
 	                   "\"/api/gc/refresh-mount\","
                    "\"/api/gc/move-to-usb\","
-                   "\"/api/gc/move-to-internal\"]}",
+                   "\"/api/gc/move-to-internal\","
+                   "\"/api/gc/delete-game-data\","
+                   "\"/api/gc/read-speed-test\"]}",
                    checkpoint,
                    json_bool(launcher.launcher_enabled),
                    json_bool(launcher.launcher_attempted),
@@ -414,9 +417,13 @@ dispatch_request(const http_request_t *req) {
 	       !strcmp(req->path, "/api/gc/uncompress") ||
 	       !strcmp(req->path, "/api/gc/validate-repair") ||
 	       !strcmp(req->path, "/api/gc/validate-only") ||
-	       !strcmp(req->path, "/api/gc/refresh-mount") ||
+       !strcmp(req->path, "/api/gc/refresh-mount") ||
        !strcmp(req->path, "/api/gc/move-to-usb") ||
-       !strcmp(req->path, "/api/gc/move-to-internal")) {
+       !strcmp(req->path, "/api/gc/move-to-internal") ||
+       !strcmp(req->path, "/api/gc/copy-to-usb") ||
+       !strcmp(req->path, "/api/gc/copy-to-internal") ||
+       !strcmp(req->path, "/api/gc/delete-game-data") ||
+       !strcmp(req->path, "/api/gc/read-speed-test")) {
       return gc_api_request(req, req->path);
     }
     return websrv_send_error_json(req->fd, 404, "not found");
