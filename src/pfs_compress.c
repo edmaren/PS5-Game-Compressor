@@ -89,6 +89,7 @@
   ((uint64_t)PFS_STREAM_REVERSE_WORKERS * PFS_STREAM_REVERSE_CHUNK_MAX_SIZE)
 #define PFS_STREAM_COMPRESS_WORKERS 4
 #define PFS_STREAM_TRUNCATE_GRANULARITY (512ULL * 1024ULL * 1024ULL)
+#define PFS_IO_SYSCALL_CHUNK_SIZE (1U * 1024U * 1024U)
 #define PFS_STREAM_JOURNAL_MAGIC "GCSTRM2"
 #define PFS_STREAM_JOURNAL_VERSION 4U
 #define PFS_STREAM_DEFAULT_RESERVE_BYTES (128ULL * 1024ULL * 1024ULL)
@@ -799,23 +800,6 @@ join_abs(char *out, size_t out_size, const char *dir, const char *name) {
 }
 
 static int
-join_abs_rel(char *out, size_t out_size, const char *root, const char *rel) {
-  size_t n = strlen(root ? root : "");
-  int rc;
-  if(!root || !root[0] || !rel) {
-    errno = EINVAL;
-    return -1;
-  }
-  rc = snprintf(out, out_size, "%s%s%s", root,
-                (n > 1 && root[n - 1] != '/') ? "/" : "", rel);
-  if(rc < 0 || (size_t)rc >= out_size) {
-    errno = ENAMETOOLONG;
-    return -1;
-  }
-  return 0;
-}
-
-int
 pfs_compress_temp_output_path(const char *output_path, char *out,
                               size_t out_size) {
   char parent[1024];
@@ -931,7 +915,9 @@ static int
 pwrite_all_local(int fd, const void *data, size_t size, off_t offset) {
   const unsigned char *p = data;
   while(size > 0) {
-    ssize_t n = pwrite(fd, p, size, offset);
+    size_t chunk = size > PFS_IO_SYSCALL_CHUNK_SIZE ?
+        PFS_IO_SYSCALL_CHUNK_SIZE : size;
+    ssize_t n = pwrite(fd, p, chunk, offset);
     if(n < 0) {
       if(errno == EINTR) continue;
       return -1;
@@ -956,7 +942,9 @@ pwrite_all_local_cancelable(int fd, const void *data, size_t size,
       errno = EINTR;
       return -1;
     }
-    ssize_t n = pwrite(fd, p, size, offset);
+    size_t chunk = size > PFS_IO_SYSCALL_CHUNK_SIZE ?
+        PFS_IO_SYSCALL_CHUNK_SIZE : size;
+    ssize_t n = pwrite(fd, p, chunk, offset);
     if(n < 0) {
       if(errno == EINTR) continue;
       return -1;
@@ -980,7 +968,9 @@ write_all_local_cancelable(int fd, const void *data, size_t size) {
       errno = EINTR;
       return -1;
     }
-    ssize_t n = write(fd, p, size);
+    size_t chunk = size > PFS_IO_SYSCALL_CHUNK_SIZE ?
+        PFS_IO_SYSCALL_CHUNK_SIZE : size;
+    ssize_t n = write(fd, p, chunk);
     if(n < 0) {
       if(errno == EINTR) continue;
       return -1;
@@ -1115,7 +1105,9 @@ static int
 read_exact_at(int fd, void *data, size_t size, off_t offset) {
   unsigned char *p = data;
   while(size > 0) {
-    ssize_t n = pread(fd, p, size, offset);
+    size_t chunk = size > PFS_IO_SYSCALL_CHUNK_SIZE ?
+        PFS_IO_SYSCALL_CHUNK_SIZE : size;
+    ssize_t n = pread(fd, p, chunk, offset);
     if(n < 0) {
       if(errno == EINTR) continue;
       return -1;
@@ -1161,17 +1153,6 @@ destructive_stream_journal_path_from_tmp(const char *tmp_path, char *out,
     return -1;
   }
   return 0;
-}
-
-int
-pfs_compress_stream_journal_path(const char *output_path, char *out,
-                                 size_t out_size) {
-  char tmp_path[1024];
-  if(pfs_compress_temp_output_path(output_path, tmp_path,
-                                   sizeof(tmp_path)) != 0) {
-    return -1;
-  }
-  return destructive_stream_journal_path_from_tmp(tmp_path, out, out_size);
 }
 
 static void
@@ -1594,257 +1575,12 @@ destructive_stream_reconcile_reverse_file(destructive_stream_ctx_t *ctx,
   return -1;
 }
 
-static int
-destructive_stream_reconcile_all_reverse_files(destructive_stream_ctx_t *ctx,
-                                               char *err, size_t err_size) {
-  if(!ctx) return 0;
-  for(size_t i = 0; i < ctx->file_count; i++) {
-    destructive_stream_file_t *f = &ctx->files[i];
-    if(f->deleted || destructive_stream_file_reversed(f)) continue;
-    if(f->reverse_pos == 0 && f->original_size > 1) continue;
-    if(destructive_stream_reconcile_reverse_file(ctx, &ctx->files[i], i,
-                                                err, err_size) != 0) {
-      return -1;
-    }
-  }
-  return destructive_stream_sync(ctx, err, err_size);
-}
-
-static int
-destructive_stream_reconcile_committed_files(destructive_stream_ctx_t *ctx,
-                                             char *err, size_t err_size) {
-  if(!ctx) return 0;
-  for(size_t i = 0; i < ctx->file_count; i++) {
-    destructive_stream_file_t *f = &ctx->files[i];
-    int exists = 0;
-    uint64_t size = 0;
-    if(f->deleted && f->committed < f->original_size) {
-      set_err(err, err_size, "stream journal deleted a partial source file");
-      errno = EIO;
-      return -1;
-    }
-    if(f->committed == 0 && !f->deleted) continue;
-    if(f->committed > f->original_size) {
-      set_err(err, err_size, "bad stream committed size");
-      errno = EIO;
-      return -1;
-    }
-    if(!path_is_child_of_root(ctx->source_path, f->abs)) {
-      set_err(err, err_size, "refusing to recover source outside app folder");
-      errno = EINVAL;
-      return -1;
-    }
-    if(destructive_stream_stat_size(f->abs, &exists, &size, err, err_size) != 0) {
-      return -1;
-    }
-    if(f->committed >= f->original_size || f->deleted) {
-      if(exists && unlink(f->abs) != 0 && errno != ENOENT) {
-        set_err(err, err_size, "delete committed source file: %s",
-                strerror(errno));
-        return -1;
-      }
-      f->deleted = 1;
-      if(exists) destructive_stream_fsync_parent_best_effort(f->abs);
-      try_remove_empty_parent_dirs(ctx->source_path, f->abs);
-      if(destructive_stream_write_file_record(ctx, i, err, err_size) != 0) {
-        return -1;
-      }
-      continue;
-    }
-    if(!destructive_stream_file_reversed(f)) {
-      set_err(err, err_size, "stream committed source is not reversed");
-      errno = EIO;
-      return -1;
-    }
-    uint64_t expected = f->original_size - f->committed;
-    if(!exists) {
-      set_err(err, err_size, "stream committed source is missing");
-      errno = ENOENT;
-      return -1;
-    }
-    if(size < expected) {
-      set_err(err, err_size, "stream committed source is shorter than journal");
-      errno = EIO;
-      return -1;
-    }
-    if(size > expected) {
-      if(destructive_stream_truncate_path(f->abs, expected, err, err_size) != 0) {
-        return -1;
-      }
-      if(destructive_stream_write_file_record(ctx, i, err, err_size) != 0) {
-        return -1;
-      }
-    }
-  }
-  return destructive_stream_sync(ctx, err, err_size);
-}
-
-static void
-destructive_stream_publish_resume_progress(const destructive_stream_ctx_t *ctx) {
-  if(!ctx) return;
-  destructive_stream_publish_budget(ctx);
-  uint64_t copied = ctx->compression_complete
-      ? ctx->nested_size
-      : ctx->completed_blocks * PFS_BLOCK_SIZE;
-  if(copied > ctx->nested_size) copied = ctx->nested_size;
-  atomic_store(&g_job.total_bytes,
-               ctx->nested_size > (uint64_t)LONG_MAX ? LONG_MAX :
-               (long)ctx->nested_size);
-  atomic_store(&g_job.copied_bytes,
-               copied > (uint64_t)LONG_MAX ? LONG_MAX : (long)copied);
-  uint64_t output_pos = ctx->data_pos;
-  if(ctx->offsets && ctx->completed_blocks <= ctx->block_count &&
-     ctx->offsets[ctx->completed_blocks] != 0) {
-    output_pos = ctx->offsets[ctx->completed_blocks];
-  }
-  uint64_t compressed_output =
-      output_pos > ctx->pfsc_header_size ? output_pos - ctx->pfsc_header_size : 0;
-  atomic_store(&g_job.compressed_output_bytes,
-               compressed_output > (uint64_t)LONG_MAX ? LONG_MAX :
-               (long)compressed_output);
-  atomic_store(&g_job.total_blocks,
-               ctx->block_count > (uint64_t)LONG_MAX ? LONG_MAX :
-               (long)ctx->block_count);
-  atomic_store(&g_job.done_files,
-               ctx->completed_blocks > (uint64_t)INT_MAX ? INT_MAX :
-               (int)ctx->completed_blocks);
-  atomic_store(&g_job.total_files,
-               ctx->block_count > (uint64_t)INT_MAX ? INT_MAX :
-               (int)ctx->block_count);
-  atomic_store(&g_job.destructive_stream_active,
-               ctx->mutation_started ? 1 : 0);
-}
-
 static void
 destructive_stream_remove_reverse_dir(destructive_stream_ctx_t *ctx) {
   char dir[1024];
   if(destructive_stream_reverse_dir_path(ctx, dir, sizeof(dir)) == 0) {
     remove_tree_local(dir);
   }
-}
-
-static int
-destructive_stream_load(const char *journal_path, destructive_stream_ctx_t *ctx,
-                        char *err, size_t err_size) {
-  destructive_stream_header_disk_t h;
-  int fd = -1;
-  destructive_stream_init(ctx);
-  fd = open(journal_path, O_RDWR);
-  if(fd < 0) {
-    set_err(err, err_size, "open stream journal: %s", strerror(errno));
-    return -1;
-  }
-  ctx->journal_fd = fd;
-  snprintf(ctx->journal_path, sizeof(ctx->journal_path), "%s", journal_path);
-  if(read_exact_at(fd, &h, sizeof(h), 0) != 0) {
-    set_err(err, err_size, "read stream journal: %s", strerror(errno));
-    goto fail;
-  }
-  if(memcmp(h.magic, PFS_STREAM_JOURNAL_MAGIC,
-            strlen(PFS_STREAM_JOURNAL_MAGIC)) != 0 ||
-     h.version != PFS_STREAM_JOURNAL_VERSION ||
-     h.header_size != sizeof(h) ||
-     h.file_record_size != sizeof(destructive_stream_file_disk_t) ||
-     h.file_count == 0 || h.block_count == 0) {
-    set_err(err, err_size, "invalid stream journal");
-    errno = EINVAL;
-    goto fail;
-  }
-
-  ctx->file_count = h.file_count;
-  ctx->files = calloc(ctx->file_count, sizeof(*ctx->files));
-  ctx->offsets = calloc((size_t)(h.block_count + 1ULL), sizeof(*ctx->offsets));
-  ctx->owns_offsets = 1;
-  if(!ctx->files || !ctx->offsets) {
-    set_err(err, err_size, "out of memory");
-    goto fail;
-  }
-  ctx->format = (int)h.format;
-  ctx->nested_type = (int)h.nested_type;
-  ctx->rollback_requested = 0;
-  ctx->mutation_started = h.mutation_started != 0;
-  ctx->compression_complete = h.compression_complete != 0;
-  ctx->output_finalized = h.output_finalized != 0;
-  ctx->block_count = h.block_count;
-  ctx->logical_size = h.logical_size;
-  ctx->nested_size = h.nested_size;
-  ctx->pfsc_header_size = h.pfsc_header_size;
-  ctx->completed_blocks = h.completed_blocks;
-  ctx->journaled_blocks = h.completed_blocks;
-  ctx->data_pos = h.data_pos;
-  ctx->budget_bytes = h.budget_bytes;
-  ctx->reserve_bytes = h.reserve_bytes;
-  ctx->current_credit = h.current_credit;
-  ctx->actual_output_bytes = h.actual_output_bytes;
-  ctx->actual_deleted_bytes = h.actual_deleted_bytes;
-  ctx->actual_reverse_temp_bytes = h.actual_reverse_temp_bytes;
-  ctx->forward_file_count = h.forward_file_count;
-  ctx->reverse_file_count = h.reverse_file_count;
-  snprintf(ctx->source_path, sizeof(ctx->source_path), "%s", h.source_path);
-  snprintf(ctx->output_path, sizeof(ctx->output_path), "%s", h.output_path);
-  snprintf(ctx->tmp_path, sizeof(ctx->tmp_path), "%s", h.tmp_path);
-  snprintf(ctx->vhash_tmp_path, sizeof(ctx->vhash_tmp_path), "%s",
-           h.vhash_tmp_path);
-  snprintf(ctx->vhash_output_path, sizeof(ctx->vhash_output_path), "%s",
-           h.vhash_output_path);
-  snprintf(ctx->nested_name, sizeof(ctx->nested_name), "%s", h.nested_name);
-
-  for(size_t i = 0; i < ctx->file_count; i++) {
-    destructive_stream_file_disk_t rec;
-    if(read_exact_at(fd, &rec, sizeof(rec),
-                     (off_t)destructive_stream_file_record_offset(i)) != 0) {
-      set_err(err, err_size, "read stream journal file: %s", strerror(errno));
-      goto fail;
-    }
-    snprintf(ctx->files[i].rel, sizeof(ctx->files[i].rel), "%s", rec.rel);
-    if(join_abs_rel(ctx->files[i].abs, sizeof(ctx->files[i].abs),
-                    ctx->source_path, rec.rel) != 0) {
-      set_err(err, err_size, "bad stream journal source path");
-      goto fail;
-    }
-    ctx->files[i].original_size = rec.original_size;
-    ctx->files[i].virtual_offset = rec.virtual_offset;
-    ctx->files[i].committed = rec.committed;
-    ctx->files[i].reverse_pos = rec.reverse_pos;
-    ctx->files[i].reverse_claim = rec.reverse_pos;
-    ctx->files[i].predicted_stored = rec.predicted_stored;
-    ctx->files[i].schedule_order = rec.schedule_order;
-    ctx->files[i].predicted_gain_permille = rec.predicted_gain_permille;
-    ctx->files[i].reverse_required = rec.reverse_required != 0;
-    ctx->files[i].passthrough_delete = rec.passthrough_delete != 0;
-    destructive_stream_file_set_reversed(&ctx->files[i], rec.reversed != 0);
-    ctx->files[i].deleted = rec.deleted != 0;
-  }
-
-  uint64_t offsets_base = destructive_stream_offsets_offset(ctx->file_count);
-  unsigned char raw[PFSC_OFFSET_ENTRY_SIZE * 256U];
-  uint64_t index = 0;
-  while(index <= ctx->block_count) {
-    uint64_t remaining = ctx->block_count + 1ULL - index;
-    uint64_t n64 = remaining > 256U ? 256U : remaining;
-    size_t n = (size_t)n64;
-    if(read_exact_at(fd, raw, n * 8U,
-                     (off_t)(offsets_base + index * 8ULL)) != 0) {
-      set_err(err, err_size, "read stream journal offsets: %s", strerror(errno));
-      goto fail;
-    }
-    for(size_t i = 0; i < n; i++) ctx->offsets[index + i] = rd64(raw + i * 8U);
-    index += n64;
-  }
-
-  destructive_stream_publish_resume_progress(ctx);
-  job_set_current("Checking stream source files");
-  if(destructive_stream_reconcile_all_reverse_files(ctx, err, err_size) != 0) {
-    goto fail;
-  }
-  if(destructive_stream_reconcile_committed_files(ctx, err, err_size) != 0) {
-    goto fail;
-  }
-  return 0;
-
-fail:
-  destructive_stream_free(ctx);
-  return -1;
 }
 
 static int
@@ -5233,49 +4969,6 @@ done:
   return rc;
 }
 
-static int
-destructive_stream_build_scan_list(const destructive_stream_ctx_t *ctx,
-                                   scan_list_t *scans,
-                                   char *err, size_t err_size) {
-  memset(scans, 0, sizeof(*scans));
-  for(size_t i = 0; i < ctx->file_count; i++) {
-    if(scan_push(scans, ctx->files[i].abs, ctx->files[i].rel,
-                 ctx->files[i].original_size) != 0) {
-      set_err(err, err_size, "out of memory");
-      return -1;
-    }
-    scans->items[i].stream_predicted_stored = ctx->files[i].predicted_stored;
-    scans->items[i].stream_schedule_order = ctx->files[i].schedule_order;
-    scans->items[i].stream_predicted_gain_permille =
-        ctx->files[i].predicted_gain_permille;
-    scans->items[i].stream_reverse_required =
-        ctx->files[i].reverse_required;
-    scans->items[i].stream_passthrough_delete =
-        ctx->files[i].passthrough_delete;
-  }
-  return 0;
-}
-
-static int
-destructive_stream_build_layout(const destructive_stream_ctx_t *ctx,
-                                pfs_layout_t *nested,
-                                char *err, size_t err_size) {
-  scan_list_t scans = {0};
-  int rc = -1;
-  if(destructive_stream_build_scan_list(ctx, &scans, err, err_size) != 0) {
-    goto done;
-  }
-  if(ctx->format == PFS_COMPRESS_FORMAT_EXFAT) {
-    rc = build_exfat_layout_from_scans(&scans, ctx->nested_name, nested,
-                                       err, err_size);
-  } else {
-    rc = build_pfs_layout_from_scans(&scans, nested, err, err_size);
-  }
-done:
-  free(scans.items);
-  return rc;
-}
-
 static void
 layout_free(pfs_layout_t *l) {
   if(!l) return;
@@ -8177,174 +7870,6 @@ pfs_compress_prepare_source_to_ffpfsc_opts_profile_output_ex(
   }
   *plan_out = plan;
   return 0;
-}
-
-int
-pfs_compress_resume_stream_journal_profile(const char *journal_path,
-                                           int workers,
-                                           int compression_profile,
-                                           pfs_app_info_t *info,
-                                           char *err, size_t err_size) {
-  destructive_stream_ctx_t stream_ctx;
-  pfs_layout_t nested = {0};
-  int fd = -1;
-  int rc = -1;
-  int delete_started = 1;
-  uint64_t stored_size = 0;
-  const uint64_t outer_file_start = 6 * PFS_BLOCK_SIZE;
-  int worker_count = clamp_worker_count(workers);
-  pfs_app_info_t local_info;
-  if(!info) info = &local_info;
-  memset(info, 0, sizeof(*info));
-  destructive_stream_init(&stream_ctx);
-
-  job_set_current("Loading stream journal");
-  if(destructive_stream_load(journal_path, &stream_ctx, err, err_size) != 0) {
-    return -1;
-  }
-  atomic_store(&g_job.destructive_stream_active,
-               stream_ctx.mutation_started ? 1 : 0);
-  atomic_store(&g_job.rollback_requested, 0);
-  snprintf(info->source_path, sizeof(info->source_path), "%s",
-           stream_ctx.source_path);
-  snprintf(info->output_path, sizeof(info->output_path), "%s",
-           stream_ctx.output_path);
-  snprintf(info->nested_name, sizeof(info->nested_name), "%s",
-           stream_ctx.nested_name);
-  info->format = stream_ctx.format;
-  info->nested_type = stream_ctx.nested_type;
-  info->source_type = PFS_COMPRESS_SOURCE_APP;
-  info->delete_policy = PFS_DELETE_STREAM;
-  info->compression_profile = PFS_COMPRESS_PROFILE_FAST;
-
-  job_set_current("Rebuilding stream layout");
-  if(destructive_stream_build_layout(&stream_ctx, &nested, err, err_size) != 0) {
-    goto done;
-  }
-  info->nested_size = nested.image_size;
-  if(stream_ctx.completed_blocks > 0 || stream_ctx.compression_complete) {
-    uint64_t copied = stream_ctx.compression_complete
-        ? nested.image_size
-        : stream_ctx.completed_blocks * PFS_BLOCK_SIZE;
-    if(copied > nested.image_size) copied = nested.image_size;
-    atomic_store(&g_job.total_bytes,
-                 nested.image_size > (uint64_t)LONG_MAX ? LONG_MAX :
-                 (long)nested.image_size);
-    atomic_store(&g_job.copied_bytes,
-                 copied > (uint64_t)LONG_MAX ? LONG_MAX : (long)copied);
-  }
-
-  if(!stream_ctx.compression_complete) {
-    job_set_current("Restarting stream compression");
-    fd = open(stream_ctx.tmp_path, O_RDWR);
-    if(fd < 0) {
-      set_err(err, err_size, "open stream temp output: %s", strerror(errno));
-      goto done;
-    }
-    if(compress_nested_to_pfsc(fd, outer_file_start, &nested, worker_count,
-                               1, stream_ctx.nested_name,
-                               stream_ctx.nested_type,
-                               stream_ctx.vhash_tmp_path,
-                               stream_ctx.vhash_output_path,
-                               stream_ctx.tmp_path, info,
-                               stream_ctx.format, &stream_ctx,
-                               stream_ctx.source_path, &delete_started,
-                               &stored_size, info->compression_profile, 0,
-                               err, err_size) != 0) {
-      goto done;
-    }
-  } else {
-    stored_size = stream_ctx.data_pos;
-    fd = open(stream_ctx.tmp_path, O_RDWR);
-    if(fd < 0) {
-      int open_errno = errno;
-      if(!stream_ctx.output_finalized) {
-        if(open_errno == ENOENT &&
-           access(stream_ctx.output_path, F_OK) == 0) {
-          fd = -1;
-        } else {
-          set_err(err, err_size, "open stream temp output: %s",
-                  strerror(open_errno));
-          goto done;
-        }
-      }
-    }
-  }
-  info->stored_size = stored_size;
-
-  if(!stream_ctx.output_finalized) {
-    job_set_current("Finalizing .ffpfsc");
-    if(fd >= 0) {
-      if(write_outer_pfs_metadata(fd, nested.image_size, stored_size,
-                                  stream_ctx.nested_name, err,
-                                  err_size) != 0) {
-        goto done;
-      }
-      if(sync_completed_output_file(fd, err, err_size) != 0) {
-        goto done;
-      }
-      if(close(fd) != 0) {
-        set_err(err, err_size, "close output: %s", strerror(errno));
-        fd = -1;
-        goto done;
-      }
-      fd = -1;
-      if(rename(stream_ctx.tmp_path, stream_ctx.output_path) != 0) {
-        int rename_errno = errno;
-        if(rename_errno != ENOENT ||
-           access(stream_ctx.output_path, F_OK) != 0) {
-          set_err(err, err_size, "rename output: %s",
-                  strerror(rename_errno));
-          goto done;
-        }
-      }
-      destructive_stream_fsync_parent_best_effort(stream_ctx.output_path);
-    } else if(access(stream_ctx.output_path, F_OK) != 0) {
-      set_err(err, err_size, "stream final output is missing");
-      goto done;
-    }
-    if(rename(stream_ctx.vhash_tmp_path, stream_ctx.vhash_output_path) != 0) {
-      int rename_errno = errno;
-      if(rename_errno != ENOENT ||
-         access(stream_ctx.vhash_output_path, F_OK) != 0) {
-        set_err(err, err_size, "rename validation hash: %s",
-                strerror(rename_errno));
-        goto done;
-      }
-    }
-    destructive_stream_fsync_parent_best_effort(stream_ctx.vhash_output_path);
-    stream_ctx.output_finalized = 1;
-    if(destructive_stream_write_header(&stream_ctx, err, err_size) != 0 ||
-       destructive_stream_sync(&stream_ctx, err, err_size) != 0) {
-      goto done;
-    }
-  } else if(fd >= 0) {
-    close(fd);
-    fd = -1;
-  }
-
-  job_set_current("Removing source app folder");
-  if(remove_tree_local(stream_ctx.source_path) != 0 && errno != ENOENT) {
-    set_err(err, err_size, "remove source app folder: %s", strerror(errno));
-    goto done;
-  }
-  destructive_stream_remove_reverse_dir(&stream_ctx);
-  unlink(stream_ctx.journal_path);
-  rc = 0;
-
-done:
-  if(fd >= 0) close(fd);
-  layout_free(&nested);
-  destructive_stream_free(&stream_ctx);
-  return rc;
-}
-
-int
-pfs_compress_resume_stream_journal(const char *journal_path, int workers,
-                                   pfs_app_info_t *info,
-                                   char *err, size_t err_size) {
-  return pfs_compress_resume_stream_journal_profile(
-      journal_path, workers, PFS_COMPRESS_PROFILE_SPACE, info, err, err_size);
 }
 
 int

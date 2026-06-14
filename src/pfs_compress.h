@@ -143,18 +143,6 @@ int pfs_compress_execute_prepared_to_ffpfsc(pfs_compress_plan_t *plan,
                                             pfs_app_info_t *info,
                                             char *err, size_t err_size);
 void pfs_compress_plan_free(pfs_compress_plan_t *plan);
-int pfs_compress_temp_output_path(const char *output_path, char *out,
-                                  size_t out_size);
-int pfs_compress_stream_journal_path(const char *output_path, char *out,
-                                     size_t out_size);
-int pfs_compress_resume_stream_journal(const char *journal_path, int workers,
-                                       pfs_app_info_t *info,
-                                       char *err, size_t err_size);
-int pfs_compress_resume_stream_journal_profile(const char *journal_path,
-                                               int workers,
-                                               int compression_profile,
-                                               pfs_app_info_t *info,
-                                               char *err, size_t err_size);
 
 int pfs_decompress_probe(const char *path, pfs_decompress_info_t *info,
                          char *err, size_t err_size);

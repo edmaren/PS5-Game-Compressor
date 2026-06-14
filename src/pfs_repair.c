@@ -55,6 +55,7 @@
 #define REPAIR_COPY_CHUNK_MID (16ULL * 1024ULL * 1024ULL)
 #define REPAIR_COPY_CHUNK_LOW (8ULL * 1024ULL * 1024ULL)
 #define REPAIR_COPY_CHUNK_MIN (1ULL * 1024ULL * 1024ULL)
+#define REPAIR_IO_SYSCALL_CHUNK_SIZE (1U * 1024U * 1024U)
 #define REPAIR_VHASH_CACHE_BYTES (8ULL * 1024ULL * 1024ULL)
 #define JOURNAL_SYNC_INTERVAL_SECONDS 2
 
@@ -335,7 +336,15 @@ read_exact_at(int fd, void *data, size_t size, uint64_t offset,
   unsigned char *dst = data;
   size_t done = 0;
   while(done < size) {
-    ssize_t n = pread(fd, dst + done, size - done, (off_t)(offset + done));
+    if(atomic_load(&g_job.busy) && job_cancelled()) {
+      set_err(err, err_size, "cancelled");
+      errno = EINTR;
+      return -1;
+    }
+    size_t left = size - done;
+    size_t chunk = left > REPAIR_IO_SYSCALL_CHUNK_SIZE ?
+        REPAIR_IO_SYSCALL_CHUNK_SIZE : left;
+    ssize_t n = pread(fd, dst + done, chunk, (off_t)(offset + done));
     if(n < 0) {
       if(errno == EINTR) continue;
       set_err(err, err_size, "read 0x%llx: %s",
@@ -359,7 +368,15 @@ write_exact_at(int fd, const void *data, size_t size, uint64_t offset,
   const unsigned char *src = data;
   size_t done = 0;
   while(done < size) {
-    ssize_t n = pwrite(fd, src + done, size - done, (off_t)(offset + done));
+    if(atomic_load(&g_job.busy) && job_cancelled()) {
+      set_err(err, err_size, "cancelled");
+      errno = EINTR;
+      return -1;
+    }
+    size_t left = size - done;
+    size_t chunk = left > REPAIR_IO_SYSCALL_CHUNK_SIZE ?
+        REPAIR_IO_SYSCALL_CHUNK_SIZE : left;
+    ssize_t n = pwrite(fd, src + done, chunk, (off_t)(offset + done));
     if(n < 0) {
       if(errno == EINTR) continue;
       set_err(err, err_size, "write 0x%llx: %s",

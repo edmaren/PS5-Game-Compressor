@@ -362,6 +362,7 @@ job_begin(const char *verb) {
   atomic_store(&g_job.total_files, 0);
   atomic_store(&g_job.done_files, 0);
   atomic_store(&g_job.failed_files, 0);
+  atomic_store(&g_job.cancel_disabled, 0);
   atomic_store(&g_job.destructive_stream_active, 0);
   atomic_store(&g_job.rollback_requested, 0);
   snprintf(g_job.verb, sizeof(g_job.verb), "%s", verb ? verb : "");
@@ -370,6 +371,7 @@ job_begin(const char *verb) {
   g_job.target[0] = 0;
   g_job.log_path[0] = 0;
   g_job.error[0] = 0;
+  g_job.cancel_disabled_reason[0] = 0;
   g_job.started_at = time(NULL);
   g_job.ended_at = 0;
   pthread_mutex_unlock(&g_job.lock);
@@ -381,6 +383,8 @@ job_end(int rc, const char *err) {
   pthread_mutex_lock(&g_job.lock);
   g_job.ended_at = time(NULL);
   if(rc != 0) snprintf(g_job.error, sizeof(g_job.error), "%s", err ? err : "");
+  atomic_store(&g_job.cancel_disabled, 0);
+  g_job.cancel_disabled_reason[0] = 0;
   pthread_mutex_unlock(&g_job.lock);
   atomic_store(&g_job.busy, 0);
 }

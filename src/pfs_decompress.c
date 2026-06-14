@@ -62,6 +62,7 @@
 #define PFS_EXTRACT_OUTPUT_BUFFER_MIN_SIZE (64U * 1024U)
 #define PFS_IMAGE_OUTPUT_BUFFER_SIZE (128U * 1024U * 1024U)
 #define PFSC_OFFSET_READ_CHUNK_SIZE (1U * 1024U * 1024U)
+#define PFS_IO_SYSCALL_CHUNK_SIZE (1U * 1024U * 1024U)
 #define SHADOW_PFSC_BASE "/mnt/shadowmnt/pfsc"
 
 typedef struct pfsc_reader {
@@ -367,7 +368,9 @@ read_exact_at(int fd, void *data, size_t size, off_t offset) {
       errno = EINTR;
       return -1;
     }
-    ssize_t n = pread(fd, p, size, offset);
+    size_t chunk = size > PFS_IO_SYSCALL_CHUNK_SIZE ?
+        PFS_IO_SYSCALL_CHUNK_SIZE : size;
+    ssize_t n = pread(fd, p, chunk, offset);
     if(n < 0) {
       if(errno == EINTR) continue;
       return -1;
@@ -391,7 +394,9 @@ write_exact_at(int fd, const void *data, size_t size, off_t offset) {
       errno = EINTR;
       return -1;
     }
-    ssize_t n = pwrite(fd, p, size, offset);
+    size_t chunk = size > PFS_IO_SYSCALL_CHUNK_SIZE ?
+        PFS_IO_SYSCALL_CHUNK_SIZE : size;
+    ssize_t n = pwrite(fd, p, chunk, offset);
     if(n < 0) {
       if(errno == EINTR) continue;
       return -1;
@@ -415,7 +420,9 @@ write_all_fd_cancelable(int fd, const void *data, size_t size) {
       errno = EINTR;
       return -1;
     }
-    ssize_t n = write(fd, p, size);
+    size_t chunk = size > PFS_IO_SYSCALL_CHUNK_SIZE ?
+        PFS_IO_SYSCALL_CHUNK_SIZE : size;
+    ssize_t n = write(fd, p, chunk);
     if(n < 0) {
       if(errno == EINTR) continue;
       return -1;

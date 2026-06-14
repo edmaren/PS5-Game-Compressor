@@ -2258,8 +2258,9 @@
 
     function opCanShowCompressionStats(op) {
       const action = String((op && op.action) || '').toLowerCase();
+      const status = String((op && op.status) || '').toLowerCase();
       return action === 'compress' &&
-        String((op && op.status) || '').toLowerCase() === 'success' &&
+        status !== 'cancelled' &&
         (Number(op.compressedSize || 0) > 0 || Number(op.savedBytes || 0) > 0);
     }
 
@@ -2812,6 +2813,8 @@
             state.job.repairBlocks,
             state.job.cancelRequested,
             state.job.rollbackRequested,
+            state.job.cancelDisabled,
+            state.job.cancelDisabledReason,
             cancelingActiveId
           ].map(keyPart).join(':')
           : '',
@@ -2825,6 +2828,8 @@
         keyPart(job.activeId) + '::' + keyPart(job.badBlocksFound) + '::' +
         keyPart(job.repairedBlocks) + '::' + keyPart(job.repairBlocks) + '::' +
         keyPart(job.cancelRequested) + '::' +
+        keyPart(job.cancelDisabled) + '::' +
+        keyPart(job.cancelDisabledReason) + '::' +
         keyPart(job.rollbackRequested) + '::' +
         keyPart(cancelingActiveId);
     }
@@ -2921,6 +2926,7 @@
 
     function actionFor(g) {
       if (!g) return '';
+      if (!g.sourcePath) return '';
       if (g.sourceKind === 'compressed') return 'validate-repair';
       if (g.sourceKind === 'folder' || g.sourceKind === 'image') return 'compress';
       return '';
@@ -3091,7 +3097,7 @@
     }
 
     function secondaryActions(g) {
-      if (!g || g.activeOp || g.pendingOp || g.sourceKind === 'unknown') return [];
+      if (!g || !g.sourcePath || g.activeOp || g.pendingOp || g.sourceKind === 'unknown') return [];
       const actions = [];
       const sourceKind = String(g.sourceKind || '').toLowerCase();
       if (sourceKind === 'compressed' || actionFor(g) === 'validate-repair') {
@@ -3141,11 +3147,15 @@
           String((g.activeOp && g.activeOp.action) || '').toLowerCase() === 'compress' &&
           String((g.activeOp && g.activeOp.deletePolicy) || '').toLowerCase() === 'stream';
         const destructiveStreamLocked = unsafeStreamActive && job && job.destructiveStreamActive;
+        const cancelDisabled = !!(job && job.cancelDisabled);
+        const cancelDisabledReason = String((job && job.cancelDisabledReason) || '');
         const progress = progressTiming(job);
         const visual = operationVisual(g.activeOp, job);
         const fillPercent = progressFillPercent(progress, visual);
-        const cancelAttrs = destructiveStreamLocked
-          ? ' disabled title="Unsafe compression cannot be cancelled after it starts"'
+        const cancelAttrs = cancelDisabled
+          ? ' disabled title="' + escapeHtml(cancelDisabledReason || 'Operation cannot be cancelled now') + '"'
+          : destructiveStreamLocked
+            ? ' disabled title="Unsafe compression cannot be cancelled after it starts"'
           : jobCanceling(job)
             ? ' disabled title="Cancel already requested"'
             : ' title="Cancel operation"';
@@ -3272,7 +3282,7 @@
     }
 
     async function tryMountGame(g) {
-      if (!g || !g.titleId) return;
+      if (!g || !g.titleId || !g.sourcePath) return;
       const btn = $('remount-path');
       if (btn) btn.disabled = true;
       try {
@@ -3289,7 +3299,7 @@
     }
 
     async function startReadSpeedTest(g) {
-      if (!g || !g.titleId) return;
+      if (!g || !g.titleId || !g.sourcePath) return;
       const btn = $('read-speed-test');
       if (btn) btn.disabled = true;
       try {
@@ -3400,9 +3410,9 @@
       }
       const sourceKind = String(g.sourceKind || '').toLowerCase();
       const showRemount = g.isMounted === false &&
-        !g.activeOp && !g.pendingOp && sourceKind !== 'unknown';
+        !!g.sourcePath && !g.activeOp && !g.pendingOp && sourceKind !== 'unknown';
       const showReadTest = g.isMounted === true &&
-        !g.activeOp && !g.pendingOp && sourceKind !== 'unknown';
+        !!g.sourcePath && !g.activeOp && !g.pendingOp && sourceKind !== 'unknown';
       const remountButton = showRemount
         ? '<button class="remount-path" id="remount-path" aria-label="Mount now" title="Mount now"' +
         '>' + icon('refresh') + '<span>Mount now</span></button>'
@@ -3951,12 +3961,14 @@
         }
       });
       $('uncompress-start').disabled = !g ||
+        !g.sourcePath ||
         state.uncompressPlanLoading ||
         !!state.uncompressPlanError ||
         (movingToUsb && !state.uncompressUsbId);
     }
 
     async function showUncompressModal(g) {
+      if (!g || !g.sourcePath) return;
       state.uncompressGame = g;
       state.uncompressPlan = null;
       state.uncompressPlanError = '';
@@ -4022,7 +4034,7 @@
 
     function updateDeleteModal() {
       const g = state.deleteGame;
-      $('delete-confirm').disabled = state.deleteBusy || !g;
+      $('delete-confirm').disabled = state.deleteBusy || !g || !g.sourcePath;
       $('delete-cancel').disabled = state.deleteBusy;
       $('delete-close').disabled = state.deleteBusy;
       if (!g) return;
@@ -4035,6 +4047,7 @@
     }
 
     function showDeleteModal(g) {
+      if (!g || !g.sourcePath) return;
       state.deleteGame = g;
       state.deleteBusy = false;
       updateDeleteModal();
@@ -4049,7 +4062,7 @@
 
     async function confirmDeleteGameData() {
       const g = state.deleteGame;
-      if (!g || state.deleteBusy) return;
+      if (!g || !g.sourcePath || state.deleteBusy) return;
       state.deleteBusy = true;
       updateDeleteModal();
       try {
@@ -4068,6 +4081,7 @@
     }
 
     async function showUsbModal(g, mode) {
+      if (!g || !g.sourcePath) return;
       state.moveGame = g;
       state.moveMode = mode === 'copy' ? 'copy' : 'move';
       $('usb-title').textContent =
@@ -4264,24 +4278,24 @@
     }
 
     async function startMoveToUsb(g, usbId) {
-      if (!g || !usbId) return;
+      if (!g || !g.sourcePath || !usbId) return;
       await startMove('/api/gc/move-to-usb?' + gameQuery(g) +
         '&usbId=' + encodeURIComponent(usbId));
     }
 
     async function startMoveToInternal(g) {
-      if (!g) return;
+      if (!g || !g.sourcePath) return;
       await startMove('/api/gc/move-to-internal?' + gameQuery(g));
     }
 
     async function startCopyToUsb(g, usbId) {
-      if (!g || !usbId) return;
+      if (!g || !g.sourcePath || !usbId) return;
       await startMove('/api/gc/copy-to-usb?' + gameQuery(g) +
         '&usbId=' + encodeURIComponent(usbId));
     }
 
     async function startCopyToInternal(g) {
-      if (!g) return;
+      if (!g || !g.sourcePath) return;
       await startMove('/api/gc/copy-to-internal?' + gameQuery(g));
     }
 
@@ -4295,6 +4309,10 @@
         ? (state.compressSourcePolicy === 'keep' ? 'keep' : 'after')
         : state.compressDeletePolicy;
       const usbId = destination === 'usb' ? state.compressUsbId : '';
+      if (!g || !g.sourcePath) {
+        updateCompressModalSelection();
+        return;
+      }
       if (deletePolicy === 'stream' && (!g || !g.canStreamDelete)) {
         updateCompressModalSelection();
         return;
@@ -4304,13 +4322,13 @@
         return;
       }
       closeCompressFormatModal();
-      if (!g || (format !== 'pfs' && format !== 'exfat')) return;
+      if (format !== 'pfs' && format !== 'exfat') return;
       await startAction(g, false, 'compress', format, deletePolicy, profile, usbId, destination);
     }
 
     async function startSelectedUncompress() {
       const g = state.uncompressGame;
-      if (!g || state.uncompressPlanLoading || state.uncompressPlanError) {
+      if (!g || !g.sourcePath || state.uncompressPlanLoading || state.uncompressPlanError) {
         updateUncompressModalSelection();
         return;
       }
@@ -4347,6 +4365,7 @@
     async function startAction(g, confirmStream, overrideAction, compressFormat, deletePolicy, compressionProfile, usbId, compressionDestination) {
       const action = overrideAction || actionFor(g);
       if (!action) return;
+      if (!g || !g.sourcePath) return;
       if (action === 'compress' && !compressFormat) {
         showCompressFormatModal(g);
         return;
@@ -4413,6 +4432,10 @@
 
     async function cancelActiveJob(activeId) {
       const id = activeId || String((state.job && state.job.activeId) || '');
+      if (state.job && state.job.cancelDisabled) {
+        alert(state.job.cancelDisabledReason || 'Operation cannot be cancelled now');
+        return;
+      }
       if (id) {
         cancelingActiveId = id;
         if (state.job && String(state.job.activeId || '') === id) {

@@ -36,8 +36,6 @@
 #define GC_VALIDATION_DIR GC_BASE "/validations"
 #define GC_HISTORY_DIR GC_BASE "/history"
 #define GC_HISTORY_LOG GC_HISTORY_DIR "/history.jsonl"
-#define GC_RECOVERY_DIR GC_BASE "/recovery"
-#define GC_RECOVERY_LOG GC_RECOVERY_DIR "/recovery.jsonl"
 #define GC_MOUNT_SWITCH_LOG GC_BASE "/mount-switch-recovery.jsonl"
 #define GC_REPAIR_DIR GC_LOG_DIR "/repair"
 #define GC_SIZE_CACHE_LOG GC_BASE "/size-cache.jsonl"
@@ -71,6 +69,15 @@
 #define GC_GIB (1024ULL * 1024ULL * 1024ULL)
 #define GC_STREAM_MIN_FREE_BYTES (1ULL * GC_GIB)
 #define GC_READ_SPEED_TEST_SECONDS 60
+
+static void
+gc_job_set_cancel_disabled(const char *reason) {
+  pthread_mutex_lock(&g_job.lock);
+  atomic_store(&g_job.cancel_disabled, 1);
+  snprintf(g_job.cancel_disabled_reason, sizeof(g_job.cancel_disabled_reason),
+           "%s", reason && reason[0] ? reason : "operation cannot be cancelled");
+  pthread_mutex_unlock(&g_job.lock);
+}
 
 static int
 gc_cancel_requested(char *err, size_t err_size) {
@@ -231,7 +238,6 @@ typedef struct gc_operation {
   time_t started_at;
   time_t ended_at;
   int cancel_requested;
-  int recovery_direct;
 } gc_operation_t;
 
 typedef struct gc_usb_target {
@@ -257,55 +263,6 @@ typedef struct gc_size_cache_entry {
   uint64_t size;
   time_t measured_at;
 } gc_size_cache_entry_t;
-
-typedef struct gc_history_recovery_event {
-  char id[64];
-  char status[32];
-  char action[32];
-  char phase[32];
-  char result[32];
-  char state[32];
-  char title_id[64];
-  char display_name[256];
-  char source_path[1024];
-  char output_path[1024];
-  char source_kind[32];
-  char format[16];
-  char delete_policy[16];
-  char compression_profile[16];
-  char stream_order[24];
-  uint64_t stream_budget_bytes;
-  char target_root[1024];
-  char preserve_original[16];
-  char preserved_original_path[1024];
-  char preserved_hidden_path[1024];
-  char repair_summary[1024];
-  char read_root[1024];
-  char read_storage[32];
-  char read_first_error_path[1024];
-  char read_first_error[256];
-  uint64_t compression_source_size;
-  uint64_t compressed_size;
-  uint64_t saved_bytes;
-  uint64_t scan_bytes;
-  uint64_t scan_files;
-  uint64_t scan_dirs;
-  uint64_t scan_entries;
-  uint64_t scan_elapsed_ms;
-  uint64_t scan_workers;
-  uint64_t read_bytes;
-  uint64_t read_files;
-  uint64_t read_dirs;
-  uint64_t read_elapsed_ms;
-  uint64_t read_avg_bps;
-  uint64_t read_min_bps;
-  uint64_t read_max_bps;
-  uint64_t read_errors;
-  uint64_t read_skipped;
-  time_t created_at;
-  time_t started_at;
-  time_t ended_at;
-} gc_history_recovery_event_t;
 
 static pthread_mutex_t g_gc_lock = PTHREAD_MUTEX_INITIALIZER;
 static gc_operation_t g_ops[GC_MAX_OPS];
@@ -362,6 +319,15 @@ source_kind_from_name(const char *name) {
   return GC_SOURCE_UNKNOWN;
 }
 
+static int
+get_required_source_path_arg(const http_request_t *req, char *out,
+                             size_t out_size) {
+  if(!websrv_get_query_arg(req, "sourcePath", out, out_size) || !out[0]) {
+    return -2;
+  }
+  return path_is_safe(out) ? 0 : -1;
+}
+
 static const char *
 action_name(gc_action_t action) {
   if(action == GC_ACTION_COMPRESS) return "compress";
@@ -377,37 +343,6 @@ action_name(gc_action_t action) {
   if(action == GC_ACTION_READ_SPEED_TEST) return "read-speed-test";
   if(action == GC_ACTION_READ_EOF_TEST) return "read-eof-test";
   return "unknown";
-}
-
-static gc_action_t
-action_from_name(const char *name) {
-  if(!strcmp(name ? name : "", "compress")) return GC_ACTION_COMPRESS;
-  if(!strcmp(name ? name : "", "uncompress")) return GC_ACTION_UNCOMPRESS;
-  if(!strcmp(name ? name : "", "validate-repair")) {
-    return GC_ACTION_VALIDATE_REPAIR;
-  }
-  if(!strcmp(name ? name : "", "validate-only")) return GC_ACTION_VALIDATE_ONLY;
-  if(!strcmp(name ? name : "", "move-to-usb")) return GC_ACTION_MOVE_TO_USB;
-  if(!strcmp(name ? name : "", "move-to-internal")) {
-    return GC_ACTION_MOVE_TO_INTERNAL;
-  }
-  if(!strcmp(name ? name : "", "copy-to-usb")) return GC_ACTION_COPY_TO_USB;
-  if(!strcmp(name ? name : "", "copy-to-internal")) {
-    return GC_ACTION_COPY_TO_INTERNAL;
-  }
-  if(!strcmp(name ? name : "", "refresh-mount")) {
-    return GC_ACTION_REFRESH_MOUNT;
-  }
-  if(!strcmp(name ? name : "", "delete-game-data")) {
-    return GC_ACTION_DELETE_GAME_DATA;
-  }
-  if(!strcmp(name ? name : "", "read-speed-test")) {
-    return GC_ACTION_READ_SPEED_TEST;
-  }
-  if(!strcmp(name ? name : "", "read-eof-test")) {
-    return GC_ACTION_READ_EOF_TEST;
-  }
-  return (gc_action_t)0;
 }
 
 static const char *
@@ -567,6 +502,13 @@ static const char *
 base_name(const char *path) {
   const char *slash = strrchr(path ? path : "", '/');
   return slash ? slash + 1 : path;
+}
+
+static const char *
+source_kind_name_from_path(const char *path) {
+  const char *name = base_name(path);
+  if(name && ends_with_ci(name, ".ffpfsc")) return "compressed";
+  return "unknown";
 }
 
 static void
@@ -758,6 +700,18 @@ storage_target_def_for_id(const char *id) {
     if(!strcmp(id, GC_STORAGE_TARGETS[i].id)) return &GC_STORAGE_TARGETS[i];
   }
   return NULL;
+}
+
+static int
+storage_target_root_for_id(const char *id, char *root, size_t root_size,
+                           const char **name_out) {
+  const gc_storage_target_def_t *def = storage_target_def_for_id(id);
+  int n;
+  if(!def || !root || root_size == 0) return -1;
+  n = snprintf(root, root_size, "%s", def->target_root);
+  if(n < 0 || (size_t)n >= root_size) return -1;
+  if(name_out) *name_out = def->name;
+  return 0;
 }
 
 static int
@@ -1014,6 +968,9 @@ find_exact_pfsc_by_title(const char *title_id, char *out, size_t out_size) {
   return -1;
 }
 
+static int remove_tree_gc(const char *path);
+static void artifact_cache_invalidate(void);
+
 static int
 force_remount_original_name_for_temp(const char *name,
                                      char *out, size_t out_size) {
@@ -1115,6 +1072,62 @@ cleanup_force_remount_temps_on_startup(void) {
              restored, err[0] ? err : "unknown");
     } else {
       gc_log("force remount cleanup requested scan restored=%d", restored);
+    }
+  }
+}
+
+static int
+cleanup_delete_pending_temps_in_root(const char *root) {
+  DIR *d = opendir(root);
+  struct dirent *ent;
+  int removed = 0;
+
+  if(!d) return 0;
+  while((ent = readdir(d))) {
+    char temp_path[1024];
+    struct stat st;
+
+    if(ent->d_name[0] != '.' ||
+       !ends_with_ci(ent->d_name, ".gc-delete.tmp")) {
+      continue;
+    }
+    join_path(temp_path, sizeof(temp_path), root, ent->d_name);
+    if(!path_is_safe(temp_path) || lstat(temp_path, &st) != 0) {
+      continue;
+    }
+    if(remove_tree_gc(temp_path) != 0) {
+      gc_log("delete pending cleanup failed path=%s err=%s",
+             temp_path, strerror(errno));
+      continue;
+    }
+    removed++;
+    gc_log("delete pending cleanup removed path=%s", temp_path);
+  }
+  closedir(d);
+  return removed;
+}
+
+static void
+cleanup_delete_pending_temps_on_startup(void) {
+  int removed = 0;
+
+  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
+    removed += cleanup_delete_pending_temps_in_root(GC_SHADOW_SOURCE_ROOTS[i]);
+  }
+  removed += cleanup_delete_pending_temps_in_root(GC_INTERNAL_GAME_ROOT);
+  for(size_t i = 0; i < GC_STORAGE_TARGET_COUNT; i++) {
+    removed += cleanup_delete_pending_temps_in_root(GC_STORAGE_TARGETS[i].root);
+    removed += cleanup_delete_pending_temps_in_root(
+        GC_STORAGE_TARGETS[i].target_root);
+  }
+  if(removed > 0) {
+    char err[256] = {0};
+    artifact_cache_invalidate();
+    if(gc_shadowmount_request_scan(err, sizeof(err)) != 0) {
+      gc_log("delete pending cleanup scan request failed removed=%d err=%s",
+             removed, err[0] ? err : "unknown");
+    } else {
+      gc_log("delete pending cleanup requested scan removed=%d", removed);
     }
   }
 }
@@ -2500,56 +2513,6 @@ discover_games(gc_game_t *games, size_t max_games, size_t *count_out,
 }
 
 static int
-find_game_by_title_source_cancelable(const char *title_id,
-                                     const char *source_path,
-                                     gc_game_t *out,
-                                     int exact_folder_sizes,
-                                     int honor_cancel) {
-  gc_game_t *games = calloc(GC_MAX_GAMES, sizeof(*games));
-  size_t count = 0;
-  int rc = -1;
-  if(!games) return -1;
-  discover_games_ex(games, GC_MAX_GAMES, &count, exact_folder_sizes,
-                    honor_cancel);
-  if(honor_cancel && job_cancelled()) goto done;
-  for(size_t i = 0; i < count; i++) {
-    if(honor_cancel && job_cancelled()) goto done;
-    if(strcmp(games[i].title_id, title_id)) continue;
-    if(source_path && source_path[0] &&
-       !game_source_matches(&games[i], source_path)) {
-      continue;
-    }
-    gc_game_t candidate = games[i];
-    if(exact_folder_sizes) {
-      detect_game_source_ex(&candidate, 1, honor_cancel);
-      if(honor_cancel && job_cancelled()) goto done;
-    }
-    if(!game_source_still_exists(&candidate)) continue;
-    if(out) *out = candidate;
-    rc = 0;
-    break;
-  }
-done:
-  free(games);
-  return rc;
-}
-
-static int
-find_game_by_title_source_ex(const char *title_id, const char *source_path,
-                             gc_game_t *out, int exact_folder_sizes) {
-  return find_game_by_title_source_cancelable(title_id, source_path, out,
-                                              exact_folder_sizes, 0);
-}
-
-static int
-find_game_for_operation(const gc_operation_t *op, gc_game_t *out,
-                        int exact_folder_sizes) {
-  if(!op) return -1;
-  return find_game_by_title_source_cancelable(op->title_id, op->source_path,
-                                              out, exact_folder_sizes, 1);
-}
-
-static int
 find_game_for_operation_source_path(const gc_operation_t *op, gc_game_t *out,
                                     int exact_folder_sizes) {
   gc_game_t candidate;
@@ -2562,7 +2525,8 @@ find_game_for_operation_source_path(const gc_operation_t *op, gc_game_t *out,
 
   if(!op) return -1;
   if(!op->source_path[0]) {
-    return find_game_for_operation(op, out, exact_folder_sizes);
+    errno = EINVAL;
+    return -1;
   }
 
   name = base_name(op->source_path);
@@ -2635,6 +2599,34 @@ find_game_for_operation_source_path(const gc_operation_t *op, gc_game_t *out,
      !game_source_matches(&candidate, op->source_path) ||
      !game_source_still_exists(&candidate)) {
     return -1;
+  }
+  {
+    gc_game_t mounted;
+    char link_path[1024];
+    memset(&mounted, 0, sizeof(mounted));
+    snprintf(mounted.title_id, sizeof(mounted.title_id), "%s", op->title_id);
+    snprintf(link_path, sizeof(link_path), "%s/%s/mount.lnk", GC_APP_BASE,
+             op->title_id);
+    if(read_link_file(link_path, mounted.mount_path,
+                      sizeof(mounted.mount_path)) == 0) {
+      snprintf(link_path, sizeof(link_path), "%s/%s/mount_img.lnk",
+               GC_APP_BASE, op->title_id);
+      (void)read_link_file(link_path, mounted.image_path,
+                           sizeof(mounted.image_path));
+      set_game_mount_status(&mounted, 1, "mounted");
+      detect_game_source_ex(&mounted, 0, 0);
+      if(game_source_matches(&mounted, candidate.source_path)) {
+        candidate.is_mounted = 1;
+        snprintf(candidate.mount_status, sizeof(candidate.mount_status), "%s",
+                 "mounted");
+        snprintf(candidate.mount_path, sizeof(candidate.mount_path), "%s",
+                 mounted.mount_path);
+        if(mounted.image_path[0]) {
+          snprintf(candidate.image_path, sizeof(candidate.image_path), "%s",
+                   mounted.image_path);
+        }
+      }
+    }
   }
   candidate.can_stream_delete =
       candidate.source_kind == GC_SOURCE_FOLDER ||
@@ -2913,7 +2905,7 @@ append_operation_logs(const gc_operation_t *op) {
 }
 
 static int
-history_phase_is_recoverable(const char *phase) {
+operation_result_is_intermediate_phase(const char *phase) {
   return !strcmp(phase ? phase : "", "compressing") ||
          !strcmp(phase ? phase : "", "unpacking") ||
          !strcmp(phase ? phase : "", "copying") ||
@@ -2921,49 +2913,6 @@ history_phase_is_recoverable(const char *phase) {
          !strcmp(phase ? phase : "", "source-deleted") ||
          !strcmp(phase ? phase : "", "validating") ||
          !strcmp(phase ? phase : "", "repairing");
-}
-
-static int
-history_status_is_terminal(const char *status) {
-  return !strcmp(status ? status : "", "success") ||
-         !strcmp(status ? status : "", "failed") ||
-         !strcmp(status ? status : "", "cancelled");
-}
-
-static int
-history_status_is_pending(const char *status) {
-  return !strcmp(status ? status : "", "pending") ||
-         !strcmp(status ? status : "", "queued");
-}
-
-static uint64_t
-operation_seq_from_id(const char *id) {
-  const char *p = id ? id : "";
-  if(strncmp(p, "op-", 3)) return 0;
-  p += 3;
-  if(!isdigit((unsigned char)*p)) return 0;
-  uint64_t value = 0;
-  while(isdigit((unsigned char)*p)) {
-    unsigned digit = (unsigned)(*p - '0');
-    if(value > (UINT64_MAX - digit) / 10ULL) return 0;
-    value = value * 10ULL + digit;
-    p++;
-  }
-  return value;
-}
-
-static int
-history_action_phase_is_resumable(const char *action, const char *phase) {
-  if(!strcmp(action ? action : "", "validate-repair") ||
-     !strcmp(action ? action : "", "validate-only")) {
-    return 1;
-  }
-  if(!strcmp(action ? action : "", "compress")) {
-    return !strcmp(phase ? phase : "", "compressed") ||
-           !strcmp(phase ? phase : "", "source-deleted") ||
-           !strcmp(phase ? phase : "", "repairing");
-  }
-  return 0;
 }
 
 static void
@@ -2983,8 +2932,14 @@ append_operation_phase(gc_operation_t *op, const char *phase) {
 static int
 remove_tree_gc(const char *path) {
   struct stat st;
+  int job_busy = atomic_load(&g_job.busy);
+  if(job_busy) job_set_current(path);
   if(lstat(path, &st) != 0) return errno == ENOENT ? 0 : -1;
-  if(!S_ISDIR(st.st_mode)) return unlink(path);
+  if(!S_ISDIR(st.st_mode)) {
+    int rc = unlink(path);
+    if(rc == 0 && job_busy) atomic_fetch_add(&g_job.done_files, 1);
+    return rc;
+  }
   DIR *d = opendir(path);
   if(!d) return -1;
   struct dirent *ent;
@@ -2998,7 +2953,9 @@ remove_tree_gc(const char *path) {
     }
   }
   closedir(d);
-  return rmdir(path);
+  int rc = rmdir(path);
+  if(rc == 0 && job_busy) atomic_fetch_add(&g_job.done_files, 1);
+  return rc;
 }
 
 static int
@@ -3129,7 +3086,8 @@ write_all_fd_cancelable(int fd, const void *data, size_t size,
   const char *p = data;
   while(size > 0) {
     if(gc_cancel_requested(err, err_size)) return -1;
-    ssize_t n = write(fd, p, size);
+    size_t want = size > GC_COPY_CHUNK_SIZE ? GC_COPY_CHUNK_SIZE : size;
+    ssize_t n = write(fd, p, want);
     if(n < 0) {
       if(errno == EINTR) continue;
       snprintf(err, err_size, "write target: %s", strerror(errno));
@@ -3514,824 +3472,6 @@ cleanup_failed_uncompress_output(const char *path, const char *title_id) {
     gc_log("uncompress cleanup could not remove invalid output title=%s path=%s err=%s",
            title_id ? title_id : "", path, strerror(errno));
   }
-}
-
-static int
-recovery_tmp_path_for_output(const char *output_path, char *out,
-                             size_t out_size) {
-  return pfs_compress_temp_output_path(output_path, out, out_size);
-}
-
-static int
-recovery_legacy_tmp_path_for_output(const char *output_path, char *out,
-                                    size_t out_size) {
-  return legacy_suffix_temp_path(output_path, "tmp", out, out_size);
-}
-
-static int
-recovery_legacy_stream_journal_path_for_output(const char *output_path,
-                                               char *out,
-                                               size_t out_size) {
-  char tmp_path[1024];
-  if(recovery_legacy_tmp_path_for_output(output_path, tmp_path,
-                                         sizeof(tmp_path)) != 0) {
-    return -1;
-  }
-  int n = snprintf(out, out_size, "%s.stream-journal", tmp_path);
-  if(n < 0 || (size_t)n >= out_size) {
-    errno = ENAMETOOLONG;
-    return -1;
-  }
-  return 0;
-}
-
-static int
-recovery_stream_journal_path_for_output(const char *output_path,
-                                        char *out,
-                                        size_t out_size) {
-  char hidden[1024];
-  char legacy[1024];
-  struct stat st;
-  int have_hidden = pfs_compress_stream_journal_path(
-      output_path, hidden, sizeof(hidden)) == 0;
-  if(have_hidden && stat(hidden, &st) == 0 && S_ISREG(st.st_mode)) {
-    int n = snprintf(out, out_size, "%s", hidden);
-    return n < 0 || (size_t)n >= out_size ? -1 : 0;
-  }
-  if(recovery_legacy_stream_journal_path_for_output(
-         output_path, legacy, sizeof(legacy)) == 0 &&
-     stat(legacy, &st) == 0 && S_ISREG(st.st_mode)) {
-    int n = snprintf(out, out_size, "%s", legacy);
-    return n < 0 || (size_t)n >= out_size ? -1 : 0;
-  }
-  if(have_hidden) {
-    int n = snprintf(out, out_size, "%s", hidden);
-    return n < 0 || (size_t)n >= out_size ? -1 : 0;
-  }
-  return -1;
-}
-
-static void
-recovery_remove_temp_path(const char *title_id, const char *path,
-                          const char *context) {
-  if(!path || !path[0]) return;
-  if(remove_tree_gc(path) == 0) {
-    gc_log("recovery removed incomplete %s temp title=%s path=%s",
-           context ? context : "operation", title_id ? title_id : "",
-           path);
-  } else {
-    gc_log("recovery temp cleanup failed context=%s title=%s path=%s err=%s",
-           context ? context : "operation", title_id ? title_id : "",
-           path, strerror(errno));
-  }
-}
-
-static void
-recovery_remove_uncompress_temps(const char *title_id,
-                                 const char *output_path) {
-  char path[1024];
-  if(!output_path || !output_path[0]) return;
-  if(hidden_sibling_temp_path(output_path, "gc-unpack", path,
-                              sizeof(path)) == 0) {
-    recovery_remove_temp_path(title_id, path, "uncompress");
-  }
-  if(recovery_legacy_tmp_path_for_output(output_path, path,
-                                         sizeof(path)) == 0) {
-    recovery_remove_temp_path(title_id, path, "uncompress");
-  }
-}
-
-static void
-recovery_remove_transfer_temps(const char *title_id,
-                               const char *output_path,
-                               const char *tag,
-                               const char *legacy_suffix) {
-  char path[1024];
-  if(!output_path || !output_path[0]) return;
-  if(hidden_sibling_temp_path(output_path, tag, path, sizeof(path)) == 0) {
-    recovery_remove_temp_path(title_id, path, "transfer");
-  }
-  if(legacy_suffix &&
-     legacy_suffix_temp_path(output_path, legacy_suffix, path,
-                             sizeof(path)) == 0) {
-    recovery_remove_temp_path(title_id, path, "transfer");
-  }
-}
-
-static int
-recovery_path_exists_for_kind(const char *path, const char *source_kind) {
-  struct stat st;
-  if(!path || !path[0] || lstat(path, &st) != 0) return 0;
-  gc_source_kind_t kind = source_kind_from_name(source_kind);
-  if(kind == GC_SOURCE_FOLDER) return S_ISDIR(st.st_mode);
-  if(kind == GC_SOURCE_IMAGE || kind == GC_SOURCE_COMPRESSED) {
-    return S_ISREG(st.st_mode);
-  }
-  return S_ISDIR(st.st_mode) || S_ISREG(st.st_mode);
-}
-
-static int
-recovery_queued_event_valid(const gc_history_recovery_event_t *ev,
-                            char *err, size_t err_size) {
-  const char *source;
-  struct stat st;
-  if(!ev || !valid_title_id(ev->title_id)) {
-    snprintf(err, err_size, "%s", "queued operation has invalid title");
-    return 0;
-  }
-  if(!action_from_name(ev->action)) {
-    snprintf(err, err_size, "%s", "queued operation has invalid action");
-    return 0;
-  }
-  if(!strcmp(ev->action, "compress")) {
-    if(!recovery_path_exists_for_kind(ev->source_path, ev->source_kind)) {
-      snprintf(err, err_size, "%s", "queued source is missing");
-      return 0;
-    }
-    if(ev->output_path[0] && lstat(ev->output_path, &st) == 0) {
-      snprintf(err, err_size, "%s", "queued output already exists");
-      return 0;
-    }
-    return 1;
-  }
-  if(!strcmp(ev->action, "uncompress") ||
-     !strcmp(ev->action, "validate-repair") ||
-     !strcmp(ev->action, "validate-only")) {
-    source = ev->source_path[0] ? ev->source_path : ev->output_path;
-    if(!source || !source[0] || stat(source, &st) != 0 ||
-       !S_ISREG(st.st_mode) || !ends_with_ci(source, ".ffpfsc")) {
-      snprintf(err, err_size, "%s", "queued compressed image is missing");
-      return 0;
-    }
-    return 1;
-  }
-  if(!strcmp(ev->action, "move-to-usb") ||
-     !strcmp(ev->action, "move-to-internal") ||
-     !strcmp(ev->action, "copy-to-usb") ||
-     !strcmp(ev->action, "copy-to-internal")) {
-    if(!recovery_path_exists_for_kind(ev->source_path, ev->source_kind)) {
-      snprintf(err, err_size, "%s", "queued transfer source is missing");
-      return 0;
-    }
-    if(!ev->output_path[0]) {
-      snprintf(err, err_size, "%s", "queued transfer target is missing");
-      return 0;
-    }
-    if(lstat(ev->output_path, &st) == 0) {
-      snprintf(err, err_size, "%s", "queued transfer target already exists");
-      return 0;
-    }
-    return 1;
-  }
-  if(!strcmp(ev->action, "delete-game-data")) {
-    if(!recovery_path_exists_for_kind(ev->source_path, ev->source_kind)) {
-      snprintf(err, err_size, "%s", "queued delete source is missing");
-      return 0;
-    }
-    return 1;
-  }
-  if(!strcmp(ev->action, "read-speed-test") ||
-     !strcmp(ev->action, "read-eof-test")) {
-    source = ev->output_path[0] ? ev->output_path : ev->source_path;
-    if(!source || !source[0] || stat(source, &st) != 0 ||
-       !S_ISDIR(st.st_mode)) {
-      snprintf(err, err_size, "%s", "queued read test mount is missing");
-      return 0;
-    }
-    return 1;
-  }
-  snprintf(err, err_size, "%s", "queued operation is unsupported");
-  return 0;
-}
-
-static void
-history_base_id(const char *id, char *out, size_t out_size) {
-  const char *colon = strchr(id ? id : "", ':');
-  size_t len = colon ? (size_t)(colon - id) : strlen(id ? id : "");
-  if(!out || out_size == 0) return;
-  if(len == 0) {
-    snprintf(out, out_size, "%s", "recovery");
-    return;
-  }
-  if(len >= out_size) len = out_size - 1;
-  memmove(out, id, len);
-  out[len] = 0;
-}
-
-static int
-recovery_event_from_log_line(const char *line,
-                             gc_history_recovery_event_t *out) {
-  if(!line || !out) return -1;
-  memset(out, 0, sizeof(*out));
-  json_find_string_value(line, "id", out->id, sizeof(out->id));
-  history_base_id(out->id, out->id, sizeof(out->id));
-  json_find_string_value(line, "titleId", out->title_id,
-                         sizeof(out->title_id));
-  json_find_string_value(line, "displayName", out->display_name,
-                         sizeof(out->display_name));
-  json_find_string_value(line, "action", out->action, sizeof(out->action));
-  json_find_string_value(line, "status", out->status, sizeof(out->status));
-  json_find_string_value(line, "phase", out->phase, sizeof(out->phase));
-  json_find_string_value(line, "result", out->result, sizeof(out->result));
-  if(!out->phase[0] && history_phase_is_recoverable(out->result)) {
-    snprintf(out->phase, sizeof(out->phase), "%s", out->result);
-  }
-  json_find_string_value(line, "sourcePath", out->source_path,
-                         sizeof(out->source_path));
-  json_find_string_value(line, "outputPath", out->output_path,
-                         sizeof(out->output_path));
-  json_find_string_value(line, "sourceKind", out->source_kind,
-                         sizeof(out->source_kind));
-  json_find_string_value(line, "format", out->format, sizeof(out->format));
-  json_find_string_value(line, "deletePolicy", out->delete_policy,
-                         sizeof(out->delete_policy));
-  json_find_string_value(line, "compressionProfile", out->compression_profile,
-                         sizeof(out->compression_profile));
-  json_find_string_value(line, "streamOrder", out->stream_order,
-                         sizeof(out->stream_order));
-  out->stream_budget_bytes =
-      json_find_u64_value(line, "streamBudgetBytes", 0);
-  json_find_string_value(line, "targetRoot", out->target_root,
-	                         sizeof(out->target_root));
-  json_find_string_value(line, "preserveOriginal", out->preserve_original,
-                         sizeof(out->preserve_original));
-  json_find_string_value(line, "preservedOriginalPath",
-                         out->preserved_original_path,
-                         sizeof(out->preserved_original_path));
-  json_find_string_value(line, "preservedHiddenPath",
-                         out->preserved_hidden_path,
-                         sizeof(out->preserved_hidden_path));
-		  json_find_string_value(line, "repairSummary", out->repair_summary,
-		                         sizeof(out->repair_summary));
-  json_find_string_value(line, "readRoot", out->read_root,
-                         sizeof(out->read_root));
-  json_find_string_value(line, "readStorage", out->read_storage,
-                         sizeof(out->read_storage));
-  json_find_string_value(line, "readFirstErrorPath",
-                         out->read_first_error_path,
-                         sizeof(out->read_first_error_path));
-  json_find_string_value(line, "readFirstError", out->read_first_error,
-                         sizeof(out->read_first_error));
-			  out->compression_source_size =
-			      json_find_u64_value(line, "compressionSourceSize", 0);
-			  out->compressed_size = json_find_u64_value(line, "compressedSize", 0);
-			  out->saved_bytes = json_find_u64_value(line, "savedBytes", 0);
-  out->scan_bytes = json_find_u64_value(line, "scanBytes", 0);
-  out->scan_files = json_find_u64_value(line, "scanFiles", 0);
-  out->scan_dirs = json_find_u64_value(line, "scanDirs", 0);
-  out->scan_entries = json_find_u64_value(line, "scanEntries", 0);
-  out->scan_elapsed_ms = json_find_u64_value(line, "scanElapsedMs", 0);
-  out->scan_workers = json_find_u64_value(line, "scanWorkers", 0);
-	  out->read_bytes = json_find_u64_value(line, "readBytes", 0);
-  out->read_files = json_find_u64_value(line, "readFiles", 0);
-  out->read_dirs = json_find_u64_value(line, "readDirs", 0);
-  out->read_elapsed_ms = json_find_u64_value(line, "readElapsedMs", 0);
-  out->read_avg_bps = json_find_u64_value(line, "readAvgBps", 0);
-  out->read_min_bps = json_find_u64_value(line, "readMinBps", 0);
-  out->read_max_bps = json_find_u64_value(line, "readMaxBps", 0);
-  out->read_errors = json_find_u64_value(line, "readErrors", 0);
-  out->read_skipped = json_find_u64_value(line, "readSkipped", 0);
-		  out->created_at = (time_t)json_find_u64_value(line, "createdAt", 0);
-  out->started_at = (time_t)json_find_u64_value(line, "startedAt", 0);
-  out->ended_at = (time_t)json_find_u64_value(line, "endedAt", 0);
-  if(!valid_title_id(out->title_id) || !out->action[0] ||
-     !out->status[0]) {
-    return -1;
-  }
-  if(!out->display_name[0]) {
-    snprintf(out->display_name, sizeof(out->display_name), "%s",
-             out->title_id);
-  }
-  return 0;
-}
-
-static void
-recovery_append_terminal_history(const gc_history_recovery_event_t *ev,
-                                 gc_op_status_t status,
-                                 const char *result,
-                                 const char *error) {
-  gc_operation_t op;
-  memset(&op, 0, sizeof(op));
-  op.used = 1;
-  pthread_mutex_lock(&g_gc_lock);
-  op.seq = g_next_seq++;
-  if(ev && ev->id[0]) {
-    snprintf(op.id, sizeof(op.id), "%s", ev->id);
-  } else {
-    snprintf(op.id, sizeof(op.id), "recovery-%llu",
-             (unsigned long long)op.seq);
-  }
-  op.action = ev ? action_from_name(ev->action) : GC_ACTION_VALIDATE_REPAIR;
-  if(!op.action) op.action = GC_ACTION_VALIDATE_REPAIR;
-  op.status = status;
-  snprintf(op.phase, sizeof(op.phase), "%s", "complete");
-  op.created_at = ev && ev->created_at ? ev->created_at : time(NULL);
-  op.started_at = ev && ev->started_at ? ev->started_at : op.created_at;
-  op.ended_at = time(NULL);
-  if(ev) {
-    snprintf(op.title_id, sizeof(op.title_id), "%s", ev->title_id);
-    snprintf(op.display_name, sizeof(op.display_name), "%s",
-             ev->display_name[0] ? ev->display_name : ev->title_id);
-    snprintf(op.source_path, sizeof(op.source_path), "%s", ev->source_path);
-    snprintf(op.output_path, sizeof(op.output_path), "%s", ev->output_path);
-    snprintf(op.source_kind, sizeof(op.source_kind), "%s", ev->source_kind);
-    snprintf(op.format, sizeof(op.format), "%s",
-             ev->format[0] ? ev->format : "pfs");
-    snprintf(op.delete_policy, sizeof(op.delete_policy), "%s",
-             ev->delete_policy);
-    snprintf(op.compression_profile, sizeof(op.compression_profile), "%s",
-             compression_profile_or_default(ev->compression_profile));
-    snprintf(op.stream_order, sizeof(op.stream_order), "%s",
-             ev->stream_order[0] ? ev->stream_order : "budgeted-gain");
-    op.stream_budget_bytes = ev->stream_budget_bytes;
-	    snprintf(op.target_root, sizeof(op.target_root), "%s", ev->target_root);
-    snprintf(op.preserve_original, sizeof(op.preserve_original), "%s",
-             ev->preserve_original);
-    snprintf(op.preserved_original_path, sizeof(op.preserved_original_path),
-             "%s", ev->preserved_original_path);
-    snprintf(op.preserved_hidden_path, sizeof(op.preserved_hidden_path), "%s",
-             ev->preserved_hidden_path);
-		    snprintf(op.repair_summary, sizeof(op.repair_summary), "%s",
-		             ev->repair_summary);
-    snprintf(op.read_root, sizeof(op.read_root), "%s", ev->read_root);
-    snprintf(op.read_storage, sizeof(op.read_storage), "%s", ev->read_storage);
-    snprintf(op.read_first_error_path, sizeof(op.read_first_error_path), "%s",
-             ev->read_first_error_path);
-    snprintf(op.read_first_error, sizeof(op.read_first_error), "%s",
-             ev->read_first_error);
-			    op.compression_source_size = ev->compression_source_size;
-			    op.compressed_size = ev->compressed_size;
-			    op.saved_bytes = ev->saved_bytes;
-    op.scan_bytes = ev->scan_bytes;
-    op.scan_files = ev->scan_files;
-    op.scan_dirs = ev->scan_dirs;
-    op.scan_entries = ev->scan_entries;
-    op.scan_elapsed_ms = ev->scan_elapsed_ms;
-    op.scan_workers = ev->scan_workers;
-	    op.read_bytes = ev->read_bytes;
-    op.read_files = ev->read_files;
-    op.read_dirs = ev->read_dirs;
-    op.read_elapsed_ms = ev->read_elapsed_ms;
-    op.read_avg_bps = ev->read_avg_bps;
-    op.read_min_bps = ev->read_min_bps;
-    op.read_max_bps = ev->read_max_bps;
-    op.read_errors = ev->read_errors;
-    op.read_skipped = ev->read_skipped;
-		  }
-  snprintf(op.result, sizeof(op.result), "%s", result ? result : "");
-  snprintf(op.error, sizeof(op.error), "%s", error ? error : "");
-  append_operation_logs(&op);
-  pthread_mutex_unlock(&g_gc_lock);
-  gc_notify_operation_done(action_name(op.action), op.display_name,
-                           operation_notification_status(status), op.error);
-}
-
-static void
-recovery_append_phase_history(const gc_history_recovery_event_t *ev,
-                              const char *phase) {
-  gc_operation_t op;
-  if(!ev || !phase || !phase[0]) return;
-  memset(&op, 0, sizeof(op));
-  op.used = 1;
-  op.action = action_from_name(ev->action);
-  if(!op.action) op.action = GC_ACTION_VALIDATE_REPAIR;
-  op.status = GC_OP_RUNNING;
-  snprintf(op.id, sizeof(op.id), "%s", ev->id[0] ? ev->id : "recovery");
-  snprintf(op.title_id, sizeof(op.title_id), "%s", ev->title_id);
-  snprintf(op.display_name, sizeof(op.display_name), "%s",
-           ev->display_name[0] ? ev->display_name : ev->title_id);
-  snprintf(op.source_path, sizeof(op.source_path), "%s", ev->source_path);
-  snprintf(op.output_path, sizeof(op.output_path), "%s", ev->output_path);
-  snprintf(op.source_kind, sizeof(op.source_kind), "%s", ev->source_kind);
-  snprintf(op.format, sizeof(op.format), "%s",
-           ev->format[0] ? ev->format : "pfs");
-  snprintf(op.delete_policy, sizeof(op.delete_policy), "%s",
-           ev->delete_policy);
-  snprintf(op.compression_profile, sizeof(op.compression_profile), "%s",
-           compression_profile_or_default(ev->compression_profile));
-  snprintf(op.stream_order, sizeof(op.stream_order), "%s",
-           ev->stream_order[0] ? ev->stream_order : "budgeted-gain");
-  op.stream_budget_bytes = ev->stream_budget_bytes;
-	  snprintf(op.target_root, sizeof(op.target_root), "%s", ev->target_root);
-  snprintf(op.preserve_original, sizeof(op.preserve_original), "%s",
-           ev->preserve_original);
-  snprintf(op.preserved_original_path, sizeof(op.preserved_original_path), "%s",
-           ev->preserved_original_path);
-  snprintf(op.preserved_hidden_path, sizeof(op.preserved_hidden_path), "%s",
-           ev->preserved_hidden_path);
-		  snprintf(op.repair_summary, sizeof(op.repair_summary), "%s",
-		           ev->repair_summary);
-  snprintf(op.read_root, sizeof(op.read_root), "%s", ev->read_root);
-  snprintf(op.read_storage, sizeof(op.read_storage), "%s", ev->read_storage);
-  snprintf(op.read_first_error_path, sizeof(op.read_first_error_path), "%s",
-           ev->read_first_error_path);
-  snprintf(op.read_first_error, sizeof(op.read_first_error), "%s",
-           ev->read_first_error);
-			  op.compression_source_size = ev->compression_source_size;
-			  op.compressed_size = ev->compressed_size;
-			  op.saved_bytes = ev->saved_bytes;
-  op.scan_bytes = ev->scan_bytes;
-  op.scan_files = ev->scan_files;
-  op.scan_dirs = ev->scan_dirs;
-  op.scan_entries = ev->scan_entries;
-  op.scan_elapsed_ms = ev->scan_elapsed_ms;
-  op.scan_workers = ev->scan_workers;
-	  op.read_bytes = ev->read_bytes;
-  op.read_files = ev->read_files;
-  op.read_dirs = ev->read_dirs;
-  op.read_elapsed_ms = ev->read_elapsed_ms;
-  op.read_avg_bps = ev->read_avg_bps;
-  op.read_min_bps = ev->read_min_bps;
-  op.read_max_bps = ev->read_max_bps;
-  op.read_errors = ev->read_errors;
-  op.read_skipped = ev->read_skipped;
-		  snprintf(op.phase, sizeof(op.phase), "%s", phase);
-  snprintf(op.result, sizeof(op.result), "%s", phase);
-  op.created_at = ev->created_at ? ev->created_at : time(NULL);
-  op.started_at = ev->started_at ? ev->started_at : op.created_at;
-  append_operation_logs(&op);
-}
-
-static void
-recovery_remove_repair_temps(const char *title_id, const char *output_path) {
-  char parent[1024];
-  char prefix[96];
-  DIR *d;
-
-  if(!valid_title_id(title_id) || !output_path || !output_path[0] ||
-     path_parent(output_path, parent, sizeof(parent)) != 0) {
-    return;
-  }
-  int n = snprintf(prefix, sizeof(prefix), ".%s.repair.", title_id);
-  if(n < 0 || (size_t)n >= sizeof(prefix)) return;
-  d = opendir(parent);
-  if(!d) return;
-  struct dirent *ent;
-  while((ent = readdir(d))) {
-    if(strncmp(ent->d_name, prefix, strlen(prefix)) ||
-       !ends_with_ci(ent->d_name, ".tmp")) {
-      continue;
-    }
-    char path[1024];
-    join_path(path, sizeof(path), parent, ent->d_name);
-    if(unlink(path) == 0 || errno == ENOENT) {
-      gc_log("recovery removed repair temp title=%s path=%s",
-             title_id, path);
-    } else {
-      gc_log("recovery repair temp remove failed title=%s path=%s err=%s",
-             title_id, path, strerror(errno));
-    }
-  }
-  closedir(d);
-}
-
-static int
-recovery_enqueue_validate_repair(const gc_history_recovery_event_t *ev) {
-  if(!ev || !valid_title_id(ev->title_id) || !ev->output_path[0]) return -1;
-  gc_action_t action = action_from_name(ev->action);
-  if(action != GC_ACTION_VALIDATE_ONLY) action = GC_ACTION_VALIDATE_REPAIR;
-  pthread_mutex_lock(&g_gc_lock);
-  if(pending_op_for_title_locked(ev->title_id) ||
-     active_op_for_title_locked(ev->title_id)) {
-    pthread_mutex_unlock(&g_gc_lock);
-    gc_log("recovery skipped duplicate title=%s", ev->title_id);
-    return 0;
-  }
-  gc_operation_t *op = alloc_op_locked();
-  if(!op) {
-    pthread_mutex_unlock(&g_gc_lock);
-    gc_log("recovery could not allocate operation title=%s", ev->title_id);
-    return -1;
-  }
-  memset(op, 0, sizeof(*op));
-  op->used = 1;
-  op->seq = operation_seq_from_id(ev->id);
-  if(op->seq == 0) op->seq = g_next_seq++;
-  if(op->seq >= g_next_seq) g_next_seq = op->seq + 1;
-  snprintf(op->id, sizeof(op->id), "%s", ev->id[0] ? ev->id : "recovery");
-  op->action = action;
-  op->status = GC_OP_QUEUED;
-  op->created_at = ev->created_at ? ev->created_at : time(NULL);
-  snprintf(op->title_id, sizeof(op->title_id), "%s", ev->title_id);
-  snprintf(op->display_name, sizeof(op->display_name), "%s",
-           ev->display_name[0] ? ev->display_name : ev->title_id);
-  snprintf(op->source_path, sizeof(op->source_path), "%s", ev->output_path);
-  snprintf(op->output_path, sizeof(op->output_path), "%s", ev->output_path);
-  snprintf(op->source_kind, sizeof(op->source_kind), "%s", "compressed");
-  snprintf(op->format, sizeof(op->format), "%s",
-           ev->format[0] ? ev->format : "pfs");
-  snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "none");
-  op->recovery_direct = 1;
-  append_operation_logs(op);
-  start_next_locked();
-  pthread_mutex_unlock(&g_gc_lock);
-  gc_log("recovery enqueued %s title=%s path=%s",
-         action_name(action), ev->title_id, ev->output_path);
-  return 0;
-}
-
-static int
-recovery_enqueue_stream_resume(const gc_history_recovery_event_t *ev) {
-  char journal_path[1024];
-  struct stat st;
-  if(!ev || !valid_title_id(ev->title_id) || !ev->output_path[0]) return -1;
-  if(recovery_stream_journal_path_for_output(ev->output_path, journal_path,
-                                             sizeof(journal_path)) != 0 ||
-     stat(journal_path, &st) != 0 || !S_ISREG(st.st_mode)) {
-    return -1;
-  }
-  pthread_mutex_lock(&g_gc_lock);
-  if(pending_op_for_title_locked(ev->title_id) ||
-     active_op_for_title_locked(ev->title_id)) {
-    pthread_mutex_unlock(&g_gc_lock);
-    gc_log("recovery skipped duplicate stream title=%s", ev->title_id);
-    return 0;
-  }
-  gc_operation_t *op = alloc_op_locked();
-  if(!op) {
-    pthread_mutex_unlock(&g_gc_lock);
-    gc_log("recovery could not allocate stream operation title=%s",
-           ev->title_id);
-    return -1;
-  }
-  memset(op, 0, sizeof(*op));
-  op->used = 1;
-  op->seq = operation_seq_from_id(ev->id);
-  if(op->seq == 0) op->seq = g_next_seq++;
-  if(op->seq >= g_next_seq) g_next_seq = op->seq + 1;
-  snprintf(op->id, sizeof(op->id), "%s", ev->id[0] ? ev->id : "recovery");
-  op->action = GC_ACTION_COMPRESS;
-  op->status = GC_OP_QUEUED;
-  op->created_at = ev->created_at ? ev->created_at : time(NULL);
-  snprintf(op->title_id, sizeof(op->title_id), "%s", ev->title_id);
-  snprintf(op->display_name, sizeof(op->display_name), "%s",
-           ev->display_name[0] ? ev->display_name : ev->title_id);
-  snprintf(op->source_path, sizeof(op->source_path), "%s", ev->source_path);
-  snprintf(op->output_path, sizeof(op->output_path), "%s", ev->output_path);
-  snprintf(op->source_kind, sizeof(op->source_kind), "%s",
-           ev->source_kind[0] ? ev->source_kind : "folder");
-  snprintf(op->format, sizeof(op->format), "%s",
-           ev->format[0] ? ev->format : "pfs");
-  snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "stream");
-  snprintf(op->compression_profile, sizeof(op->compression_profile), "%s",
-           compression_profile_or_default(ev->compression_profile));
-	  snprintf(op->stream_order, sizeof(op->stream_order), "%s",
-	           ev->stream_order[0] ? ev->stream_order : "budgeted-gain");
-	  op->stream_budget_bytes = ev->stream_budget_bytes;
-		  op->compression_source_size = ev->compression_source_size;
-		  op->compressed_size = ev->compressed_size;
-		  op->saved_bytes = ev->saved_bytes;
-  op->scan_bytes = ev->scan_bytes;
-  op->scan_files = ev->scan_files;
-  op->scan_dirs = ev->scan_dirs;
-  op->scan_entries = ev->scan_entries;
-  op->scan_elapsed_ms = ev->scan_elapsed_ms;
-  op->scan_workers = ev->scan_workers;
-		  op->recovery_direct = 1;
-	  append_operation_logs(op);
-  start_next_locked();
-  pthread_mutex_unlock(&g_gc_lock);
-  gc_log("recovery enqueued stream resume title=%s journal=%s",
-         ev->title_id, journal_path);
-  return 0;
-}
-
-static int
-recovery_mark_repairing_and_enqueue(const gc_history_recovery_event_t *ev,
-                                    int remove_temps) {
-  char scan_err[256] = {0};
-  struct stat st;
-
-  if(!ev || !ev->output_path[0] ||
-     stat(ev->output_path, &st) != 0 || !S_ISREG(st.st_mode) ||
-     !ends_with_ci(ev->output_path, ".ffpfsc")) {
-    recovery_append_terminal_history(ev, GC_OP_FAILED, "failed",
-                                     "recovery output is missing");
-    return -1;
-  }
-
-  if(remove_temps) {
-    recovery_remove_repair_temps(ev->title_id, ev->output_path);
-  }
-  if(gc_shadowmount_request_scan(scan_err, sizeof(scan_err)) != 0) {
-    gc_log("recovery scan request failed title=%s err=%s", ev->title_id,
-           scan_err[0] ? scan_err : "unknown");
-  }
-  return recovery_enqueue_validate_repair(ev);
-}
-
-static int
-recovery_process_history_event(gc_history_recovery_event_t *ev) {
-  if(!ev || history_status_is_terminal(ev->status) ||
-     strcmp(ev->status, "running")) {
-    return 0;
-  }
-  if(!history_phase_is_recoverable(ev->phase) &&
-     strcmp(ev->action, "validate-repair") &&
-     strcmp(ev->action, "validate-only")) {
-    return 0;
-  }
-
-  if(!strcmp(ev->action, "compress") && !strcmp(ev->phase, "compressing")) {
-    if(!strcmp(ev->delete_policy, "stream") &&
-       recovery_enqueue_stream_resume(ev) == 0) {
-      recovery_append_phase_history(ev, "compressing");
-      return 0;
-    }
-    char tmp_path[1024] = {0};
-    if(ev->output_path[0]) {
-      (void)recovery_tmp_path_for_output(ev->output_path, tmp_path,
-                                         sizeof(tmp_path));
-    }
-    if(tmp_path[0]) {
-      if(remove_tree_gc(tmp_path) == 0) {
-        gc_log("recovery removed incomplete compression temp title=%s path=%s",
-               ev->title_id, tmp_path);
-      } else {
-        gc_log("recovery temp cleanup failed title=%s path=%s err=%s",
-               ev->title_id, tmp_path, strerror(errno));
-      }
-    }
-    tmp_path[0] = 0;
-    if(ev->output_path[0] &&
-       recovery_legacy_tmp_path_for_output(ev->output_path, tmp_path,
-                                           sizeof(tmp_path)) == 0) {
-      recovery_remove_temp_path(ev->title_id, tmp_path, "compression");
-    }
-    recovery_append_terminal_history(ev, GC_OP_CANCELLED, "cancelled",
-                                     "recovered incomplete compression");
-    return 0;
-  }
-
-  if(!strcmp(ev->action, "uncompress") && !strcmp(ev->phase, "unpacking")) {
-    const char *output_kind = !strcmp(ev->format, "image") ? "image" : "folder";
-    if(ev->output_path[0] && !recovery_path_exists_for_kind(ev->output_path,
-                                                            output_kind)) {
-      recovery_remove_uncompress_temps(ev->title_id, ev->output_path);
-    }
-    recovery_append_terminal_history(ev, GC_OP_CANCELLED, "cancelled",
-                                     "recovered incomplete uncompress");
-    return 0;
-  }
-
-  if((!strcmp(ev->action, "move-to-usb") ||
-      !strcmp(ev->action, "move-to-internal") ||
-      !strcmp(ev->action, "copy-to-usb") ||
-      !strcmp(ev->action, "copy-to-internal")) &&
-     !strcmp(ev->phase, "copying")) {
-    if(ev->output_path[0] && !recovery_path_exists_for_kind(ev->output_path,
-                                                            ev->source_kind)) {
-      int copy_only = !strcmp(ev->action, "copy-to-usb") ||
-                      !strcmp(ev->action, "copy-to-internal");
-      recovery_remove_transfer_temps(
-          ev->title_id, ev->output_path,
-          copy_only ? "gc-copying" : "gc-moving",
-          copy_only ? "copying" : "moving");
-    }
-    recovery_append_terminal_history(ev, GC_OP_CANCELLED, "cancelled",
-                                     "recovered incomplete transfer");
-    return 0;
-  }
-
-  if(!strcmp(ev->action, "compress") && !strcmp(ev->phase, "compressed")) {
-    gc_source_kind_t kind = source_kind_from_name(ev->source_kind);
-    char err[256] = {0};
-    struct stat st;
-    if(ev->source_path[0] && lstat(ev->source_path, &st) == 0) {
-      if(kind == GC_SOURCE_UNKNOWN) {
-        recovery_append_terminal_history(ev, GC_OP_FAILED, "failed",
-                                         "recovery source kind is unknown");
-        return -1;
-      }
-      if(delete_source_after_success(ev->source_path, kind, err,
-                                     sizeof(err)) != 0) {
-        recovery_append_terminal_history(ev, GC_OP_FAILED, "failed",
-            err[0] ? err : "recovery source delete failed");
-        return -1;
-      }
-    }
-    recovery_append_phase_history(ev, "source-deleted");
-    snprintf(ev->phase, sizeof(ev->phase), "%s", "source-deleted");
-    return recovery_mark_repairing_and_enqueue(ev, 0);
-  }
-
-  if(!strcmp(ev->action, "validate-repair") ||
-     !strcmp(ev->action, "validate-only")) {
-    return recovery_mark_repairing_and_enqueue(ev, 1);
-  }
-
-  if(!strcmp(ev->action, "compress") &&
-     (!strcmp(ev->phase, "source-deleted") ||
-      !strcmp(ev->phase, "repairing"))) {
-    return recovery_mark_repairing_and_enqueue(
-        ev, !strcmp(ev->phase, "repairing"));
-  }
-
-  gc_log("recovery ignoring history event title=%s action=%s phase=%s",
-         ev->title_id, ev->action, ev->phase);
-  return 0;
-}
-
-static int
-recovery_restore_queued_op(const gc_history_recovery_event_t *ev) {
-  char err[256] = {0};
-  gc_action_t action;
-  uint64_t seq;
-
-  if(!ev || !history_status_is_pending(ev->status)) return 0;
-  if(!recovery_queued_event_valid(ev, err, sizeof(err))) {
-    gc_log("recovery dropping queued id=%s title=%s reason=%s",
-           ev->id, ev->title_id, err);
-    recovery_append_terminal_history(ev, GC_OP_CANCELLED, "cancelled", err);
-    return 0;
-  }
-  action = action_from_name(ev->action);
-  if(!action) {
-    recovery_append_terminal_history(ev, GC_OP_CANCELLED, "cancelled",
-                                     "queued operation has invalid action");
-    return 0;
-  }
-
-  pthread_mutex_lock(&g_gc_lock);
-  if(pending_op_for_title_locked(ev->title_id) ||
-     active_op_for_title_locked(ev->title_id)) {
-    pthread_mutex_unlock(&g_gc_lock);
-    gc_log("recovery skipped duplicate queued title=%s id=%s",
-           ev->title_id, ev->id);
-    return 0;
-  }
-  gc_operation_t *op = alloc_op_locked();
-  if(!op) {
-    pthread_mutex_unlock(&g_gc_lock);
-    recovery_append_terminal_history(ev, GC_OP_FAILED, "failed",
-                                     "could not restore queued operation");
-    return -1;
-  }
-  memset(op, 0, sizeof(*op));
-  op->used = 1;
-  seq = operation_seq_from_id(ev->id);
-  op->seq = seq ? seq : g_next_seq++;
-  if(op->seq >= g_next_seq) g_next_seq = op->seq + 1;
-  snprintf(op->id, sizeof(op->id), "%s", ev->id[0] ? ev->id : "recovery");
-  op->action = action;
-  op->status = GC_OP_QUEUED;
-  op->created_at = ev->created_at ? ev->created_at : time(NULL);
-  op->started_at = ev->started_at;
-  snprintf(op->title_id, sizeof(op->title_id), "%s", ev->title_id);
-  snprintf(op->display_name, sizeof(op->display_name), "%s",
-           ev->display_name[0] ? ev->display_name : ev->title_id);
-  snprintf(op->source_path, sizeof(op->source_path), "%s", ev->source_path);
-  snprintf(op->output_path, sizeof(op->output_path), "%s", ev->output_path);
-  snprintf(op->source_kind, sizeof(op->source_kind), "%s", ev->source_kind);
-  snprintf(op->format, sizeof(op->format), "%s",
-           ev->format[0] ? ev->format : "pfs");
-  snprintf(op->delete_policy, sizeof(op->delete_policy), "%s",
-           ev->delete_policy[0] ? ev->delete_policy : "after");
-	  snprintf(op->compression_profile, sizeof(op->compression_profile), "%s",
-	           compression_profile_or_default(ev->compression_profile));
-		  snprintf(op->target_root, sizeof(op->target_root), "%s", ev->target_root);
-  snprintf(op->preserve_original, sizeof(op->preserve_original), "%s",
-           ev->preserve_original);
-  snprintf(op->preserved_original_path, sizeof(op->preserved_original_path), "%s",
-           ev->preserved_original_path);
-  snprintf(op->preserved_hidden_path, sizeof(op->preserved_hidden_path), "%s",
-           ev->preserved_hidden_path);
-		  snprintf(op->repair_summary, sizeof(op->repair_summary), "%s",
-		           ev->repair_summary);
-  snprintf(op->read_root, sizeof(op->read_root), "%s", ev->read_root);
-  snprintf(op->read_storage, sizeof(op->read_storage), "%s", ev->read_storage);
-  snprintf(op->read_first_error_path, sizeof(op->read_first_error_path), "%s",
-           ev->read_first_error_path);
-  snprintf(op->read_first_error, sizeof(op->read_first_error), "%s",
-           ev->read_first_error);
-			  op->compression_source_size = ev->compression_source_size;
-			  op->compressed_size = ev->compressed_size;
-			  op->saved_bytes = ev->saved_bytes;
-  op->scan_bytes = ev->scan_bytes;
-  op->scan_files = ev->scan_files;
-  op->scan_dirs = ev->scan_dirs;
-  op->scan_entries = ev->scan_entries;
-  op->scan_elapsed_ms = ev->scan_elapsed_ms;
-  op->scan_workers = ev->scan_workers;
-	  op->read_bytes = ev->read_bytes;
-  op->read_files = ev->read_files;
-  op->read_dirs = ev->read_dirs;
-  op->read_elapsed_ms = ev->read_elapsed_ms;
-  op->read_avg_bps = ev->read_avg_bps;
-  op->read_min_bps = ev->read_min_bps;
-  op->read_max_bps = ev->read_max_bps;
-  op->read_errors = ev->read_errors;
-  op->read_skipped = ev->read_skipped;
-		  if(action == GC_ACTION_VALIDATE_REPAIR ||
-     action == GC_ACTION_VALIDATE_ONLY) {
-    op->recovery_direct = 1;
-  }
-  append_operation_logs(op);
-  start_next_locked();
-  pthread_mutex_unlock(&g_gc_lock);
-  gc_log("recovery restored queued id=%s action=%s title=%s",
-         op->id, action_name(op->action), op->title_id);
-  return 0;
 }
 
 static int
@@ -4886,19 +4026,73 @@ mount_switch_hide_competitors(gc_operation_t *op, const gc_game_t *selected,
                               size_t max_hidden, size_t *hidden_count,
                               char *err, size_t err_size) {
   gc_game_t *games = calloc(GC_MAX_GAMES, sizeof(*games));
+  gc_scan_roots_t roots;
   size_t count = 0;
   size_t hidden_used = 0;
   int rc = -1;
 
   if(hidden_count) *hidden_count = 0;
+  memset(&roots, 0, sizeof(roots));
   if(!games) {
     snprintf(err, err_size, "%s", "out of memory");
     return -1;
   }
   if(gc_cancel_requested(err, err_size)) goto done;
-  if(discover_games(games, GC_MAX_GAMES, &count, 0) != 0) {
-    snprintf(err, err_size, "%s", "could not scan game instances");
-    goto done;
+  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
+    scan_roots_add(&roots, GC_SHADOW_SOURCE_ROOTS[i]);
+  }
+  for(size_t i = 0; i < GC_STORAGE_TARGET_COUNT; i++) {
+    scan_roots_add(&roots, GC_STORAGE_TARGETS[i].root);
+    scan_roots_add(&roots, GC_STORAGE_TARGETS[i].target_root);
+  }
+  scan_roots_add_parent(&roots, selected->source_path);
+  scan_roots_add_parent(&roots, selected->output_path);
+  {
+    char link_target[1024];
+    if(read_title_link(selected->title_id, "mount.lnk", link_target,
+                       sizeof(link_target)) == 0) {
+      scan_roots_add_parent(&roots, link_target);
+      gc_game_t mounted;
+      memset(&mounted, 0, sizeof(mounted));
+      snprintf(mounted.title_id, sizeof(mounted.title_id), "%s",
+               selected->title_id);
+      snprintf(mounted.mount_path, sizeof(mounted.mount_path), "%s",
+               link_target);
+      (void)read_title_link(selected->title_id, "mount_img.lnk",
+                            mounted.image_path, sizeof(mounted.image_path));
+      set_game_mount_status(&mounted, 1, "mounted");
+      detect_game_source_ex(&mounted, 0, 1);
+      if(mounted.source_kind != GC_SOURCE_UNKNOWN &&
+         !game_uses_system_app_path(&mounted) &&
+         game_source_still_exists(&mounted)) {
+        append_game_unique_by_source(games, GC_MAX_GAMES, &count, &mounted);
+      }
+    }
+  }
+  for(size_t i = 0; i < roots.count && count < GC_MAX_GAMES; i++) {
+    char path[1024];
+    gc_game_t candidate;
+    int n = snprintf(path, sizeof(path), "%s/%s.ffpfsc",
+                     roots.roots[i], selected->title_id);
+    if(n >= 0 && (size_t)n < sizeof(path) &&
+       candidate_game_from_path(path, base_name(path), &candidate, 0, 0) == 0 &&
+       !strcmp(candidate.title_id, selected->title_id)) {
+      append_game_unique_by_source(games, GC_MAX_GAMES, &count, &candidate);
+    }
+    n = snprintf(path, sizeof(path), "%s/%s", roots.roots[i],
+                 selected->title_id);
+    if(n >= 0 && (size_t)n < sizeof(path) &&
+       candidate_game_from_path(path, base_name(path), &candidate, 0, 0) == 0 &&
+       !strcmp(candidate.title_id, selected->title_id)) {
+      append_game_unique_by_source(games, GC_MAX_GAMES, &count, &candidate);
+    }
+    n = snprintf(path, sizeof(path), "%s/%s-app", roots.roots[i],
+                 selected->title_id);
+    if(n >= 0 && (size_t)n < sizeof(path) &&
+       candidate_game_from_path(path, base_name(path), &candidate, 0, 0) == 0 &&
+       !strcmp(candidate.title_id, selected->title_id)) {
+      append_game_unique_by_source(games, GC_MAX_GAMES, &count, &candidate);
+    }
   }
   if(gc_cancel_requested(err, err_size)) goto done;
 
@@ -5662,7 +4856,9 @@ run_move_op(gc_operation_t *op) {
   gc_checkpoint("move find game");
   gc_log("%s start op=%s title=%s action=%s targetRoot=%s", verb, op->id,
          op->title_id, action_name(op->action), op->target_root);
-  if(find_game_for_operation(op, &game, 1) != 0 ||
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
+  if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
      game.source_kind == GC_SOURCE_UNKNOWN) {
     snprintf(op->error, sizeof(op->error), "%s", "game is unavailable");
     gc_log("%s failed title=%s err=%s", verb, op->title_id, op->error);
@@ -5673,6 +4869,19 @@ run_move_op(gc_operation_t *op) {
     return -1;
   }
   snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
+  if(game.source_kind == GC_SOURCE_FOLDER && game.size_pending) {
+    int cancelled = 0;
+    append_operation_phase(op, "measuring");
+    job_set_phase("measuring", 0, 0, "Measuring selected source");
+    game.source_size = source_size_bytes_exact_ex(
+        game.source_path, game.source_kind, 1, &cancelled);
+    if(cancelled) {
+      snprintf(op->error, sizeof(op->error), "%s", "cancelled");
+      return -1;
+    }
+    game.required_bytes = game.source_size;
+    size_cache_store(game.source_path, game.source_size);
+  }
   if(close_title_if_running(op->title_id, err, sizeof(err)) != 0) {
     snprintf(op->error, sizeof(op->error), "%s",
              err[0] ? err : "could not close game");
@@ -5901,39 +5110,9 @@ run_compress_op(gc_operation_t *op) {
   gc_log("compress start op=%s title=%s format=%s policy=%s profile=%s", op->id,
          op->title_id, op->format, op->delete_policy,
          op->compression_profile);
-  if(op->recovery_direct && stream_delete &&
-     op->output_path[0]) {
-    char journal_path[1024];
-    if(recovery_stream_journal_path_for_output(op->output_path, journal_path,
-                                               sizeof(journal_path)) != 0) {
-      snprintf(op->error, sizeof(op->error), "%s",
-               "could not derive stream journal path");
-      COMPRESS_FAIL_RETURN();
-    }
-    append_operation_phase(op, "compressing");
-    atomic_store(&g_job.stream_min_free_bytes, 0);
-    atomic_store(&g_job.stream_budget_bytes,
-                 stream_budget_bytes > (uint64_t)LONG_MAX ? LONG_MAX :
-                 (long)stream_budget_bytes);
-    job_set_phase("compressing", 0, 0, "Resuming stream compression");
-    int resume_rc = pfs_compress_resume_stream_journal_profile(
-        journal_path, PFS_COMPRESS_DEFAULT_WORKERS, compression_profile,
-        &info, err, sizeof(err));
-    if(resume_rc != 0) {
-      snprintf(op->error, sizeof(op->error), "%s",
-               err[0] ? err : "stream compression resume failed");
-      gc_log("compress resume failed title=%s err=%s", op->title_id,
-             op->error);
-      COMPRESS_FAIL_RETURN();
-    }
-    snprintf(op->source_path, sizeof(op->source_path), "%s", info.source_path);
-    snprintf(op->output_path, sizeof(op->output_path), "%s", info.output_path);
-    snprintf(op->source_kind, sizeof(op->source_kind), "%s", "folder");
-    compressed_output_committed = 1;
-    append_operation_phase(op, "source-deleted");
-    goto post_compress;
-  }
-  if(find_game_for_operation(op, &game, 0) != 0) {
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
+  if(find_game_for_operation_source_path(op, &game, 0) != 0) {
     snprintf(op->error, sizeof(op->error), "%s", "game is no longer mounted");
     gc_log("compress failed title=%s err=%s", op->title_id, op->error);
     COMPRESS_FAIL_RETURN();
@@ -6140,8 +5319,6 @@ run_compress_op(gc_operation_t *op) {
   } else {
     append_operation_phase(op, "compressed");
   }
-
-post_compress:
   init_compressed_output_game_for_mount(op, &game, &info, &compressed_game);
   gc_checkpoint("compress mount output");
   err[0] = 0;
@@ -6348,6 +5525,7 @@ run_uncompress_op(gc_operation_t *op) {
   char err[256] = {0};
   pfs_decompress_info_t info = {0};
   gc_source_quarantine_t source_quarantine = {0};
+  char target_path[1024] = {0};
   int as_image = !strcmp(op->format, "image");
   int delete_after = !strcmp(op->delete_policy, "after");
   int pfs_delete_policy = PFS_DELETE_KEEP;
@@ -6355,6 +5533,8 @@ run_uncompress_op(gc_operation_t *op) {
   gc_checkpoint("uncompress find game");
   gc_log("uncompress start op=%s title=%s policy=%s mode=%s", op->id,
          op->title_id, op->delete_policy, as_image ? "image" : "app");
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
   if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
      game.source_kind != GC_SOURCE_COMPRESSED) {
     snprintf(op->error, sizeof(op->error), "%s", "compressed game is unavailable");
@@ -6375,8 +5555,28 @@ run_uncompress_op(gc_operation_t *op) {
     gc_log("uncompress failed title=%s err=%s", op->title_id, op->error);
     return -1;
   }
+  if(op->target_root[0]) {
+    if(build_uncompress_target_path(op->target_root, &game, target_path,
+                                    sizeof(target_path), err,
+                                    sizeof(err)) != 0) {
+      snprintf(op->error, sizeof(op->error), "%s",
+               err[0] ? err : "bad uncompress target");
+      gc_log("uncompress failed title=%s err=%s", op->title_id, op->error);
+      return -1;
+    }
+    if(!strcmp(game.output_path, target_path)) {
+      snprintf(op->error, sizeof(op->error), "%s",
+               "game is already in that location");
+      gc_log("uncompress failed title=%s err=%s", op->title_id, op->error);
+      return -1;
+    }
+  } else if(op->output_path[0]) {
+    snprintf(target_path, sizeof(target_path), "%s", op->output_path);
+  }
+  append_operation_phase(op, "preflight");
+  job_set_phase("preflight", 0, 0, "Inspecting compressed image");
   if(prepare_uncompress_plan(&game, as_image,
-                             op->output_path[0] ? op->output_path : NULL,
+                             target_path[0] ? target_path : NULL,
                              NULL,
                              err, sizeof(err)) != 0) {
     snprintf(op->error, sizeof(op->error), "%s",
@@ -6618,37 +5818,23 @@ run_validate_repair_op(gc_operation_t *op) {
   const char *repair_path = NULL;
   uint64_t source_size = 0;
   uint64_t free_bytes = 0;
-  int recovery_mode = op->recovery_direct && op->source_path[0];
   gc_checkpoint("validate find game");
   gc_log("validate start op=%s title=%s", op->id, op->title_id);
-  if(recovery_mode) {
-    struct stat st;
-    if(stat(op->source_path, &st) != 0 || !S_ISREG(st.st_mode) ||
-       !ends_with_ci(op->source_path, ".ffpfsc")) {
-      snprintf(op->error, sizeof(op->error), "%s",
-               "compressed game is unavailable");
-      gc_log("validate failed title=%s err=%s", op->title_id, op->error);
-      return -1;
-    }
-    repair_path = op->source_path;
-    snprintf(op->output_path, sizeof(op->output_path), "%s", op->source_path);
-    snprintf(op->source_kind, sizeof(op->source_kind), "%s", "compressed");
-    source_size = st.st_size > 0 ? (uint64_t)st.st_size : 0;
-    (void)free_bytes_for_output(repair_path, &free_bytes);
-  } else {
-    if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
-       game.source_kind != GC_SOURCE_COMPRESSED) {
-      snprintf(op->error, sizeof(op->error), "%s", "compressed game is unavailable");
-      gc_log("validate failed title=%s err=%s", op->title_id, op->error);
-      return -1;
-    }
-    snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
-    snprintf(op->output_path, sizeof(op->output_path), "%s", game.source_path);
-    snprintf(op->source_kind, sizeof(op->source_kind), "%s", "compressed");
-    repair_path = game.source_path;
-    source_size = game.source_size;
-    free_bytes = game.free_bytes;
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
+  if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
+     game.source_kind != GC_SOURCE_COMPRESSED) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             "compressed game is unavailable");
+    gc_log("validate failed title=%s err=%s", op->title_id, op->error);
+    return -1;
   }
+  snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
+  snprintf(op->output_path, sizeof(op->output_path), "%s", game.source_path);
+  snprintf(op->source_kind, sizeof(op->source_kind), "%s", "compressed");
+  repair_path = game.source_path;
+  source_size = game.source_size;
+  free_bytes = game.free_bytes;
   if(close_title_if_running(op->title_id, err, sizeof(err)) != 0) {
     snprintf(op->error, sizeof(op->error), "%s",
              err[0] ? err : "could not close game");
@@ -6662,7 +5848,7 @@ run_validate_repair_op(gc_operation_t *op) {
          op->title_id, repair_path ? repair_path : "",
          (unsigned long long)source_size,
          (unsigned long long)free_bytes,
-         recovery_mode ? "recovery" : game.validation_status);
+         game.validation_status);
   err[0] = 0;
   job_set_phase("mounting", 0, 0, "Requesting ShadowMount scan");
   if(gc_shadowmount_request_scan_cancelable(err, sizeof(err)) != 0 &&
@@ -6717,41 +5903,25 @@ run_validate_only_op(gc_operation_t *op) {
   uint64_t source_size = 0;
   uint64_t free_bytes = 0;
   int scan_rc = -1;
-  int recovery_mode = op->recovery_direct && op->source_path[0];
 
   gc_checkpoint("validate-only find game");
   gc_log("validate-only start op=%s title=%s", op->id, op->title_id);
-  if(recovery_mode) {
-    struct stat st;
-    if(stat(op->source_path, &st) != 0 || !S_ISREG(st.st_mode) ||
-       !ends_with_ci(op->source_path, ".ffpfsc")) {
-      snprintf(op->error, sizeof(op->error), "%s",
-               "compressed game is unavailable");
-      gc_log("validate-only failed title=%s err=%s",
-             op->title_id, op->error);
-      return -1;
-    }
-    repair_path = op->source_path;
-    snprintf(op->output_path, sizeof(op->output_path), "%s", op->source_path);
-    snprintf(op->source_kind, sizeof(op->source_kind), "%s", "compressed");
-    source_size = st.st_size > 0 ? (uint64_t)st.st_size : 0;
-    (void)free_bytes_for_output(repair_path, &free_bytes);
-  } else {
-    if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
-       game.source_kind != GC_SOURCE_COMPRESSED) {
-      snprintf(op->error, sizeof(op->error), "%s",
-               "compressed game is unavailable");
-      gc_log("validate-only failed title=%s err=%s",
-             op->title_id, op->error);
-      return -1;
-    }
-    snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
-    snprintf(op->output_path, sizeof(op->output_path), "%s", game.source_path);
-    snprintf(op->source_kind, sizeof(op->source_kind), "%s", "compressed");
-    repair_path = game.source_path;
-    source_size = game.source_size;
-    free_bytes = game.free_bytes;
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
+  if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
+     game.source_kind != GC_SOURCE_COMPRESSED) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             "compressed game is unavailable");
+    gc_log("validate-only failed title=%s err=%s",
+           op->title_id, op->error);
+    return -1;
   }
+  snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
+  snprintf(op->output_path, sizeof(op->output_path), "%s", game.source_path);
+  snprintf(op->source_kind, sizeof(op->source_kind), "%s", "compressed");
+  repair_path = game.source_path;
+  source_size = game.source_size;
+  free_bytes = game.free_bytes;
   if(close_title_if_running(op->title_id, err, sizeof(err)) != 0) {
     snprintf(op->error, sizeof(op->error), "%s",
              err[0] ? err : "could not close game");
@@ -6765,7 +5935,7 @@ run_validate_only_op(gc_operation_t *op) {
          op->title_id, repair_path ? repair_path : "",
          (unsigned long long)source_size,
          (unsigned long long)free_bytes,
-         recovery_mode ? "recovery" : game.validation_status);
+         game.validation_status);
   err[0] = 0;
   job_set_phase("mounting", 0, 0, "Requesting ShadowMount scan");
   if(gc_shadowmount_request_scan_cancelable(err, sizeof(err)) != 0 &&
@@ -6857,6 +6027,8 @@ run_refresh_mount_op(gc_operation_t *op) {
   memset(&link_backup, 0, sizeof(link_backup));
   gc_checkpoint("refresh-mount find game");
   gc_log("refresh-mount start op=%s title=%s", op->id, op->title_id);
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
   if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
      game.source_kind == GC_SOURCE_UNKNOWN) {
     snprintf(op->error, sizeof(op->error), "%s",
@@ -7129,7 +6301,9 @@ run_read_speed_test_op(gc_operation_t *op) {
 
   gc_checkpoint("read-speed find game");
   gc_log("read-speed start op=%s title=%s", op->id, op->title_id);
-  if(find_game_for_operation(op, &game, 0) != 0 ||
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
+  if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
      game.source_kind == GC_SOURCE_UNKNOWN) {
     snprintf(op->error, sizeof(op->error), "%s", "game data is unavailable");
     gc_log("read-speed failed title=%s err=%s", op->title_id, op->error);
@@ -7441,7 +6615,9 @@ run_read_eof_test_op(gc_operation_t *op) {
 
   gc_checkpoint("read-eof find game");
   gc_log("read-eof start op=%s title=%s", op->id, op->title_id);
-  if(find_game_for_operation(op, &game, 0) != 0 ||
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
+  if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
      game.source_kind == GC_SOURCE_UNKNOWN) {
     snprintf(op->error, sizeof(op->error), "%s", "game data is unavailable");
     gc_log("read-eof failed title=%s err=%s", op->title_id, op->error);
@@ -7564,10 +6740,14 @@ run_delete_game_data_op(gc_operation_t *op) {
   gc_game_t game = {0};
   char err[256] = {0};
   char scan_err[256] = {0};
+  char delete_path[1024] = {0};
+  const char *physical_delete_path = NULL;
 
   gc_checkpoint("delete find game");
   gc_log("delete start op=%s title=%s", op->id, op->title_id);
-  if(find_game_for_operation(op, &game, 1) != 0 ||
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
+  if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
      game.source_kind == GC_SOURCE_UNKNOWN) {
     snprintf(op->error, sizeof(op->error), "%s", "game data is unavailable");
     gc_log("delete failed title=%s err=%s", op->title_id, op->error);
@@ -7604,14 +6784,51 @@ run_delete_game_data_op(gc_operation_t *op) {
   }
 
   gc_checkpoint("delete source");
+  gc_job_set_cancel_disabled("delete is removing game data");
   append_operation_phase(op, "deleting");
   job_set_phase("deleting", 0, 0, "Deleting game data");
   cleanup_shadowmount_hints_for_deleted_source(op, &game);
   if(game.source_kind == GC_SOURCE_COMPRESSED) {
     delete_validation_marker_for_path(op->title_id, game.source_path);
   }
-  if(delete_source_after_success(game.source_path, game.source_kind,
+  if(game.source_kind == GC_SOURCE_FOLDER) {
+    if(hidden_sibling_temp_path(game.source_path, "gc-delete", delete_path,
+                                sizeof(delete_path)) != 0) {
+      snprintf(op->error, sizeof(op->error), "delete temp path: %s",
+               strerror(errno));
+      gc_log("delete source failed title=%s err=%s", op->title_id, op->error);
+      return -1;
+    }
+    job_set_current("Preparing delete path");
+    remove_tree_gc(delete_path);
+    if(rename(game.source_path, delete_path) != 0) {
+      snprintf(op->error, sizeof(op->error), "hide source for delete: %s",
+               strerror(errno));
+      gc_log("delete source failed title=%s err=%s", op->title_id, op->error);
+      return -1;
+    }
+    physical_delete_path = delete_path;
+    size_cache_forget(game.source_path);
+    size_cache_forget(delete_path);
+    artifact_cache_invalidate();
+    job_set_phase("mounting", 0, 0, "Requesting ShadowMount scan");
+    if(gc_shadowmount_request_scan_cancelable(scan_err, sizeof(scan_err)) != 0) {
+      gc_log("delete scan request failed title=%s err=%s", op->title_id,
+             scan_err[0] ? scan_err : "unknown");
+    }
+    append_operation_phase(op, "deleting");
+    job_set_phase("deleting", 0, 0, "Removing hidden game data");
+  } else {
+    physical_delete_path = game.source_path;
+  }
+  if(delete_source_after_success(physical_delete_path, game.source_kind,
                                  err, sizeof(err)) != 0) {
+    if(delete_path[0] && physical_delete_path == delete_path) {
+      char detail[256];
+      snprintf(detail, sizeof(detail), "%s; remaining path: %s",
+               err[0] ? err : "delete game data failed", delete_path);
+      snprintf(err, sizeof(err), "%s", detail);
+    }
     snprintf(op->error, sizeof(op->error), "%s",
              err[0] ? err : "delete game data failed");
     gc_log("delete source failed title=%s err=%s", op->title_id,
@@ -7619,6 +6836,7 @@ run_delete_game_data_op(gc_operation_t *op) {
     return -1;
   }
   size_cache_forget(game.source_path);
+  if(delete_path[0]) size_cache_forget(delete_path);
   artifact_cache_invalidate();
 
   gc_checkpoint("delete request shadowmount scan");
@@ -7707,7 +6925,7 @@ operation_thread(void *arg) {
     snprintf(op->result, sizeof(op->result), "%s", "cancelled");
   } else if(rc == 0) {
     op->status = GC_OP_SUCCESS;
-    if(!op->result[0] || history_phase_is_recoverable(op->result)) {
+    if(!op->result[0] || operation_result_is_intermediate_phase(op->result)) {
       snprintf(op->result, sizeof(op->result), "%s", "success");
     }
   } else {
@@ -7772,181 +6990,6 @@ start_next_locked(void) {
 }
 
 static int
-append_low_space_problem(json_buf_t *problem, const gc_game_t *game,
-                         int stream_ok,
-                         const char *requested_delete_policy,
-                         uint64_t stream_budget_bytes) {
-  uint64_t stream_min =
-      stream_min_free_bytes_for_budget(game->source_size, stream_budget_bytes);
-  uint64_t stream_extra = game->free_bytes >= stream_min ?
-      0 : stream_min - game->free_bytes;
-  if(json_append(problem, "{\"ok\":false,\"error\":\"not enough free storage\","
-                 "\"lowSpace\":true,\"canStreamDelete\":") != 0 ||
-     json_append(problem, stream_ok ? "true" : "false") != 0 ||
-     json_append(problem, ",\"streamDeleteAvailable\":") != 0 ||
-     json_append(problem, game->can_stream_delete ? "true" : "false") != 0 ||
-     json_appendf(problem,
-                  ",\"requiredBytes\":%llu,\"freeBytes\":%llu,"
-                  "\"extraBytes\":%llu,\"streamMinFreeBytes\":%llu,"
-                 "\"streamExtraBytes\":%llu",
-                  (unsigned long long)game->required_bytes,
-                  (unsigned long long)game->free_bytes,
-                  (unsigned long long)game->extra_needed,
-                  (unsigned long long)stream_min,
-                  (unsigned long long)stream_extra) != 0) {
-    return -1;
-  }
-  if(requested_delete_policy && requested_delete_policy[0]) {
-    if(json_append(problem, ",\"requestedDeletePolicy\":") != 0 ||
-       json_string(problem, requested_delete_policy) != 0) {
-      return -1;
-    }
-  }
-  return json_append(problem, "}") == 0 ? -2 : -1;
-}
-
-static int
-append_stream_unsupported_problem(json_buf_t *problem) {
-  return json_append(problem,
-      "{\"ok\":false,\"error\":\"destructive compression is not available "
-      "for this source\",\"streamUnsupported\":true}") == 0 ? -2 : -1;
-}
-
-static int
-append_stream_unpack_unsupported_problem(json_buf_t *problem) {
-  return json_append(problem,
-      "{\"ok\":false,\"error\":\"stream unpack is not supported\","
-      "\"streamUnsupported\":true}") == 0 ? -2 : -1;
-}
-
-static int
-append_uncompress_low_space_problem(json_buf_t *problem,
-                                    const gc_game_t *game,
-                                    const char *requested_delete_policy) {
-  uint64_t extra = game->free_bytes >= game->required_bytes ?
-      0 : game->required_bytes - game->free_bytes;
-  if(json_append(problem,
-                 "{\"ok\":false,\"error\":\"not enough free storage\","
-                 "\"lowSpace\":true,\"canStreamDelete\":false,"
-                 "\"streamDeleteAvailable\":false") != 0 ||
-     json_appendf(problem,
-                  ",\"requiredBytes\":%llu,\"freeBytes\":%llu,"
-                  "\"extraBytes\":%llu",
-                  (unsigned long long)game->required_bytes,
-                  (unsigned long long)game->free_bytes,
-                  (unsigned long long)extra) != 0) {
-    return -1;
-  }
-  if(requested_delete_policy && requested_delete_policy[0]) {
-    if(json_append(problem, ",\"requestedDeletePolicy\":") != 0 ||
-       json_string(problem, requested_delete_policy) != 0) {
-      return -1;
-    }
-  }
-  return json_append(problem, "}") == 0 ? -2 : -1;
-}
-
-static int
-preflight_action(const gc_game_t *game, gc_action_t action, int confirm_stream,
-                 const char *requested_delete_policy,
-                 uint64_t stream_budget_bytes,
-                 char *delete_policy, size_t delete_policy_size,
-                 json_buf_t *problem) {
-  if(action == GC_ACTION_VALIDATE_REPAIR ||
-     action == GC_ACTION_VALIDATE_ONLY ||
-     action == GC_ACTION_REFRESH_MOUNT) {
-    snprintf(delete_policy, delete_policy_size, "%s", "none");
-    return 0;
-  }
-  if(game->output_exists &&
-     (action == GC_ACTION_COMPRESS || action == GC_ACTION_UNCOMPRESS)) {
-    return json_append(problem,
-        "{\"ok\":false,\"error\":\"output exists\",\"outputExists\":true}") == 0
-        ? -2 : -1;
-  }
-  if(game->size_pending || game->source_size == 0 || game->required_bytes == 0) {
-	    if(action == GC_ACTION_COMPRESS &&
-	       game->source_kind == GC_SOURCE_FOLDER) {
-	      snprintf(delete_policy, delete_policy_size, "%s",
-	               requested_delete_policy &&
-	                   !strcmp(requested_delete_policy, "stream") ? "stream" :
-	               (requested_delete_policy &&
-	                   !strcmp(requested_delete_policy, "keep") ? "keep" :
-	                   "after"));
-	      return 0;
-	    }
-    return json_append(problem,
-        "{\"ok\":false,\"error\":\"could not measure game size\"}") == 0
-        ? -2 : -1;
-  }
-  if(action == GC_ACTION_UNCOMPRESS) {
-    if(requested_delete_policy && !strcmp(requested_delete_policy, "stream")) {
-      return append_stream_unpack_unsupported_problem(problem);
-    }
-    if(requested_delete_policy && !strcmp(requested_delete_policy, "keep")) {
-      if(game->free_bytes >= game->required_bytes) {
-        snprintf(delete_policy, delete_policy_size, "%s", "keep");
-        return 0;
-      }
-      return append_uncompress_low_space_problem(problem, game, "keep");
-    }
-    if(requested_delete_policy && !strcmp(requested_delete_policy, "after")) {
-      if(game->free_bytes >= game->required_bytes) {
-        snprintf(delete_policy, delete_policy_size, "%s", "after");
-        return 0;
-      }
-      return append_uncompress_low_space_problem(problem, game, "after");
-    }
-    if(game->free_bytes >= game->required_bytes) {
-      snprintf(delete_policy, delete_policy_size, "%s", "after");
-      return 0;
-    }
-    return append_uncompress_low_space_problem(problem, game, "");
-  }
-  int stream_ok = action == GC_ACTION_COMPRESS ?
-      stream_delete_allowed_by_space_budget(game, stream_budget_bytes) : 0;
-  if(requested_delete_policy && !strcmp(requested_delete_policy, "stream")) {
-    if(action != GC_ACTION_COMPRESS) {
-      return append_stream_unpack_unsupported_problem(problem);
-    }
-    if(!game->can_stream_delete) return append_stream_unsupported_problem(problem);
-    if(stream_ok) {
-      snprintf(delete_policy, delete_policy_size, "%s", "stream");
-      return 0;
-    }
-    return append_low_space_problem(problem, game, stream_ok, "stream",
-                                    stream_budget_bytes);
-  }
-  if(requested_delete_policy && !strcmp(requested_delete_policy, "after")) {
-    if(game->free_bytes >= game->required_bytes) {
-      snprintf(delete_policy, delete_policy_size, "%s", "after");
-      return 0;
-    }
-    return append_low_space_problem(problem, game, stream_ok, "after",
-                                    stream_budget_bytes);
-  }
-  if(action == GC_ACTION_COMPRESS &&
-     requested_delete_policy && !strcmp(requested_delete_policy, "keep")) {
-    if(game->free_bytes >= game->required_bytes) {
-      snprintf(delete_policy, delete_policy_size, "%s", "keep");
-      return 0;
-    }
-    return append_low_space_problem(problem, game, stream_ok, "keep",
-                                    stream_budget_bytes);
-  }
-	  if(game->free_bytes >= game->required_bytes) {
-    snprintf(delete_policy, delete_policy_size, "%s", "after");
-    return 0;
-  }
-  if(action == GC_ACTION_COMPRESS && stream_ok && confirm_stream) {
-    snprintf(delete_policy, delete_policy_size, "%s", "stream");
-    return 0;
-  }
-  return append_low_space_problem(problem, game, stream_ok, "",
-                                  stream_budget_bytes);
-}
-
-static int
 enqueue_action(const http_request_t *req, gc_action_t action) {
   char title_id[64];
   char source_path_arg[1024] = "";
@@ -7955,7 +6998,6 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
   char mode_arg[16];
   char destination_arg[24] = "";
   char profile_arg[24];
-  char confirm_arg[16];
   char delete_policy_arg[24];
   char preserve_arg[24];
   char budget_arg[32];
@@ -7966,15 +7008,9 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
   char compression_profile[16] = "space";
   char stream_order[24] = "budgeted-gain";
   uint64_t stream_budget_bytes = PFS_STREAM_DEFAULT_BUDGET_BYTES;
-  int confirm_stream = 0;
   gc_game_t game;
-  json_buf_t problem = {0};
   char delete_policy[16] = "after";
   char target_root[1024] = "";
-  char target_path[1024] = "";
-  char err[256] = {0};
-  uint64_t target_free = 0;
-  int uncompress_image = 0;
   int uncompress_to_internal = 0;
   int compress_to_internal = 0;
 
@@ -7982,11 +7018,19 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
      !valid_title_id(title_id)) {
     return serve_error(req, 400, "bad titleId");
   }
-  if(websrv_get_query_arg(req, "sourcePath", source_path_arg,
-                          sizeof(source_path_arg)) &&
-     !path_is_safe(source_path_arg)) {
+  int source_rc = get_required_source_path_arg(req, source_path_arg,
+                                               sizeof(source_path_arg));
+  if(source_rc == -2) {
+    return serve_error(req, 400, "sourcePath required");
+  }
+  if(source_rc != 0) {
     return serve_error(req, 400, "bad source path");
   }
+  memset(&game, 0, sizeof(game));
+  snprintf(game.title_id, sizeof(game.title_id), "%s", title_id);
+  snprintf(game.name, sizeof(game.name), "%s", title_id);
+  snprintf(game.source_path, sizeof(game.source_path), "%s", source_path_arg);
+  game.source_kind = source_kind_from_name(source_kind_name_from_path(source_path_arg));
   pthread_mutex_lock(&g_gc_lock);
   if(active_op_for_title_locked(title_id) || pending_op_for_title_locked(title_id)) {
     pthread_mutex_unlock(&g_gc_lock);
@@ -8007,7 +7051,6 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
   if(action == GC_ACTION_UNCOMPRESS &&
      websrv_get_query_arg(req, "mode", mode_arg, sizeof(mode_arg))) {
     if(!strcasecmp(mode_arg, "image")) {
-      uncompress_image = 1;
       snprintf(format, sizeof(format), "%s", "image");
     } else if(!strcasecmp(mode_arg, "app") ||
               !strcasecmp(mode_arg, "folder")) {
@@ -8058,12 +7101,6 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
     } else {
       return serve_error(req, 400, "bad compression profile");
     }
-  }
-  if(action == GC_ACTION_COMPRESS &&
-     websrv_get_query_arg(req, "confirmStream", confirm_arg,
-                          sizeof(confirm_arg)) &&
-     strcmp(confirm_arg, "0")) {
-    confirm_stream = 1;
   }
   if(websrv_get_query_arg(req, "deletePolicy", delete_policy_arg,
                           sizeof(delete_policy_arg))) {
@@ -8127,63 +7164,22 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
       return serve_error(req, 400, "bad stream order");
     }
   }
-  if(find_game_by_title_source_ex(title_id, source_path_arg, &game, 0) != 0) {
-    return serve_error(req, 404,
-                       source_path_arg[0] ? "game source is unavailable" :
-                       "game is not mounted");
-  }
-  if(action == GC_ACTION_COMPRESS &&
-     game.source_kind != GC_SOURCE_FOLDER &&
-     game.source_kind != GC_SOURCE_IMAGE) {
-    return serve_error(req, 400, "game is not compressible");
-  }
   if(action == GC_ACTION_COMPRESS &&
      websrv_get_query_arg(req, "usbId", usb_id, sizeof(usb_id))) {
-    gc_usb_target_t usb;
-    struct stat st;
-    if(usb_target_for_id(usb_id, &usb) != 0) {
+    if(storage_target_root_for_id(usb_id, target_root,
+                                  sizeof(target_root), NULL) != 0) {
       return serve_error(req, 400, "bad storage target");
     }
     if(requested_delete_policy[0] && !strcmp(requested_delete_policy, "stream")) {
       return serve_error(req, 400,
                          "destructive compression is not available while moving to external storage");
     }
-    snprintf(target_root, sizeof(target_root), "%s", usb.target_root);
-    target_free = usb.free_bytes;
     if(!requested_delete_policy[0]) {
       snprintf(requested_delete_policy, sizeof(requested_delete_policy), "%s",
                "after");
     }
-    if(build_compress_target_path(target_root, &game, target_path,
-                                  sizeof(target_path), err, sizeof(err)) != 0) {
-      return serve_error(req, 400, err[0] ? err : "bad compression target");
-    }
-    if(stat(target_path, &st) == 0) {
-      return serve_error(req, 409, "target already exists");
-    }
-    if(!game.size_pending && game.required_bytes > 0 &&
-       target_free < game.required_bytes) {
-      json_buf_t target_problem = {0};
-      uint64_t extra = game.required_bytes - target_free;
-      if(json_append(&target_problem,
-                     "{\"ok\":false,\"error\":\"not enough free storage\","
-                     "\"lowSpace\":true,\"canStreamDelete\":false,"
-                     "\"requestedDeletePolicy\":") != 0 ||
-         json_string(&target_problem, requested_delete_policy) != 0 ||
-         json_appendf(&target_problem,
-                      ",\"requiredBytes\":%llu,\"freeBytes\":%llu,"
-                      "\"extraBytes\":%llu}",
-                      (unsigned long long)game.required_bytes,
-                      (unsigned long long)target_free,
-                      (unsigned long long)extra) != 0) {
-        free(target_problem.data);
-        return -1;
-      }
-      return serve_owned(req, 409, target_problem.data, target_problem.len);
-    }
   } else if(action == GC_ACTION_COMPRESS && compress_to_internal) {
-    struct stat st;
-    if(path_under_root(game.source_path, "/data")) {
+    if(path_under_root(source_path_arg, "/data")) {
       return serve_error(req, 409, "game is already on internal SSD");
     }
     if(requested_delete_policy[0] && !strcmp(requested_delete_policy, "stream")) {
@@ -8191,126 +7187,67 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
                          "destructive compression is not available while moving to internal SSD");
     }
     snprintf(target_root, sizeof(target_root), "%s", GC_INTERNAL_GAME_ROOT);
-    if(space_for_path(target_root, &target_free, NULL) != 0) {
-      return serve_error(req, 500, "internal SSD is unavailable");
-    }
     if(!requested_delete_policy[0]) {
       snprintf(requested_delete_policy, sizeof(requested_delete_policy), "%s",
                "after");
-    }
-    if(build_compress_target_path(target_root, &game, target_path,
-                                  sizeof(target_path), err, sizeof(err)) != 0) {
-      return serve_error(req, 400, err[0] ? err : "bad compression target");
-    }
-    if(stat(target_path, &st) == 0) {
-      return serve_error(req, 409, "target already exists");
-    }
-    if(!game.size_pending && game.required_bytes > 0 &&
-       target_free < game.required_bytes) {
-      json_buf_t target_problem = {0};
-      uint64_t extra = game.required_bytes - target_free;
-      if(json_append(&target_problem,
-                     "{\"ok\":false,\"error\":\"not enough free storage\","
-                     "\"lowSpace\":true,\"canStreamDelete\":false,"
-                     "\"requestedDeletePolicy\":") != 0 ||
-         json_string(&target_problem, requested_delete_policy) != 0 ||
-         json_appendf(&target_problem,
-                      ",\"requiredBytes\":%llu,\"freeBytes\":%llu,"
-                      "\"extraBytes\":%llu}",
-                      (unsigned long long)game.required_bytes,
-                      (unsigned long long)target_free,
-                      (unsigned long long)extra) != 0) {
-        free(target_problem.data);
-        return -1;
-      }
-      return serve_owned(req, 409, target_problem.data, target_problem.len);
     }
   } else if(action == GC_ACTION_COMPRESS && destination_arg[0] &&
             (!strcasecmp(destination_arg, "usb") ||
              !strcasecmp(destination_arg, "external"))) {
     return serve_error(req, 400, "bad storage target");
   }
-	  if((action == GC_ACTION_UNCOMPRESS ||
-	      action == GC_ACTION_VALIDATE_REPAIR ||
-	      action == GC_ACTION_VALIDATE_ONLY) &&
-     game.source_kind != GC_SOURCE_COMPRESSED) {
-    return serve_error(req, 400, "game is not compressed");
-  }
   if(action == GC_ACTION_UNCOMPRESS) {
-    if(prepare_uncompress_plan(&game, uncompress_image, NULL, NULL,
-                               err, sizeof(err)) != 0) {
-      return serve_error(req, 400,
-                         err[0] ? err : "could not inspect compressed image");
-    }
     if(uncompress_to_internal) {
-      if(path_under_root(game.source_path, "/data")) {
+      if(path_under_root(source_path_arg, "/data")) {
         return serve_error(req, 409, "compressed game is already on internal SSD");
       }
       snprintf(target_root, sizeof(target_root), "%s", GC_INTERNAL_GAME_ROOT);
-      if(space_for_path(target_root, &target_free, NULL) != 0) {
-        return serve_error(req, 500, "internal SSD is unavailable");
-      }
     } else if(websrv_get_query_arg(req, "usbId", usb_id, sizeof(usb_id))) {
-      gc_usb_target_t usb;
-      if(usb_target_for_id(usb_id, &usb) != 0) {
+      const gc_storage_target_def_t *def = storage_target_def_for_id(usb_id);
+      if(storage_target_root_for_id(usb_id, target_root,
+                                    sizeof(target_root), NULL) != 0 || !def) {
         return serve_error(req, 400, "bad storage target");
       }
-      if(path_under_root(game.source_path, usb.root)) {
+      if(path_under_root(source_path_arg, def->root)) {
         return serve_error(req, 409,
                            "compressed game is already on selected external storage");
       }
-      snprintf(target_root, sizeof(target_root), "%s", usb.target_root);
-      target_free = usb.free_bytes;
     } else if(destination_arg[0] &&
               (!strcasecmp(destination_arg, "usb") ||
                !strcasecmp(destination_arg, "external"))) {
       return serve_error(req, 400, "bad storage target");
     }
-    if(target_root[0]) {
-      if(mkdirs(target_root) != 0) {
-        return serve_error(req, 500, "create uncompress target root failed");
-      }
-      if(build_uncompress_target_path(target_root, &game, target_path,
-                                      sizeof(target_path), err,
-                                      sizeof(err)) != 0) {
-        return serve_error(req, 400, err[0] ? err : "bad uncompress target");
-      }
-      if(!strcmp(game.output_path, target_path)) {
-        return serve_error(req, 409, "game is already in that location");
-      }
-      if(prepare_uncompress_plan(&game, uncompress_image, target_path, NULL,
-                                 err, sizeof(err)) != 0) {
-        return serve_error(req, 400,
-                           err[0] ? err : "could not inspect compressed image");
-      }
-    }
   }
-	  if(action == GC_ACTION_COMPRESS && target_root[0]) {
-	    snprintf(delete_policy, sizeof(delete_policy), "%s",
-	             !strcmp(requested_delete_policy, "keep") ? "keep" : "after");
-	  } else {
-	    if(action == GC_ACTION_COMPRESS &&
-	       requested_delete_policy[0] &&
-	       !strcmp(requested_delete_policy, "keep")) {
+  if(action == GC_ACTION_VALIDATE_REPAIR ||
+     action == GC_ACTION_VALIDATE_ONLY ||
+     action == GC_ACTION_REFRESH_MOUNT) {
+    snprintf(delete_policy, sizeof(delete_policy), "%s", "none");
+  } else if(action == GC_ACTION_COMPRESS && target_root[0]) {
+    snprintf(delete_policy, sizeof(delete_policy), "%s",
+             !strcmp(requested_delete_policy, "keep") ? "keep" : "after");
+  } else {
+    if(action == GC_ACTION_COMPRESS &&
+       requested_delete_policy[0] &&
+       !strcmp(requested_delete_policy, "keep")) {
       if(preserve_original[0]) {
         snprintf(delete_policy, sizeof(delete_policy), "%s", "keep");
       } else {
         return serve_error(req, 400,
                            "keep both is only available when moving to another storage");
       }
-	    }
-	    int p = preflight_action(&game, action, confirm_stream,
-	                             requested_delete_policy, stream_budget_bytes,
-                             delete_policy,
-                             sizeof(delete_policy), &problem);
-    if(p == -2) return serve_owned(req, 409, problem.data, problem.len);
-    if(p != 0) {
-      free(problem.data);
-      return serve_error(req, 500, "preflight failed");
+    }
+    if(action == GC_ACTION_COMPRESS &&
+       requested_delete_policy[0] &&
+       !strcmp(requested_delete_policy, "stream")) {
+      snprintf(delete_policy, sizeof(delete_policy), "%s", "stream");
+    } else if(requested_delete_policy[0] &&
+              !strcmp(requested_delete_policy, "keep")) {
+      snprintf(delete_policy, sizeof(delete_policy), "%s", "keep");
+    } else if(requested_delete_policy[0] &&
+              !strcmp(requested_delete_policy, "after")) {
+      snprintf(delete_policy, sizeof(delete_policy), "%s", "after");
     }
   }
-  free(problem.data);
-
   pthread_mutex_lock(&g_gc_lock);
   if(active_op_for_title_locked(title_id) || pending_op_for_title_locked(title_id)) {
     pthread_mutex_unlock(&g_gc_lock);
@@ -8332,8 +7269,7 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
   snprintf(op->title_id, sizeof(op->title_id), "%s", title_id);
   snprintf(op->display_name, sizeof(op->display_name), "%s", game.name);
   snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
-  snprintf(op->output_path, sizeof(op->output_path), "%s",
-           target_path[0] ? target_path : game.output_path);
+  op->output_path[0] = 0;
   snprintf(op->source_kind, sizeof(op->source_kind), "%s",
            source_kind_name(game.source_kind));
   snprintf(op->format, sizeof(op->format), "%s", format);
@@ -8452,6 +7388,7 @@ uncompress_plan_request(const http_request_t *req) {
   char source_path_arg[1024] = "";
   char err[256] = {0};
   gc_game_t game;
+  gc_operation_t op;
   char nested_name[256];
   char image_output_path[1024];
   int nested_type = PFS_NESTED_PFS;
@@ -8459,12 +7396,19 @@ uncompress_plan_request(const http_request_t *req) {
      !valid_title_id(title_id)) {
     return serve_error(req, 400, "bad titleId");
   }
-  if(websrv_get_query_arg(req, "sourcePath", source_path_arg,
-                          sizeof(source_path_arg)) &&
-     !path_is_safe(source_path_arg)) {
+  int source_rc = get_required_source_path_arg(req, source_path_arg,
+                                               sizeof(source_path_arg));
+  if(source_rc == -2) {
+    return serve_error(req, 400, "sourcePath required");
+  }
+  if(source_rc != 0) {
     return serve_error(req, 400, "bad source path");
   }
-  if(find_game_by_title_source_ex(title_id, source_path_arg, &game, 0) != 0 ||
+  memset(&op, 0, sizeof(op));
+  snprintf(op.title_id, sizeof(op.title_id), "%s", title_id);
+  snprintf(op.display_name, sizeof(op.display_name), "%s", title_id);
+  snprintf(op.source_path, sizeof(op.source_path), "%s", source_path_arg);
+  if(find_game_for_operation_source_path(&op, &game, 0) != 0 ||
      game.source_kind != GC_SOURCE_COMPRESSED) {
     return serve_error(req, 400, "game is not compressed");
   }
@@ -8513,20 +7457,19 @@ enqueue_move_action(const http_request_t *req, gc_action_t action) {
   char title_id[64];
   char source_path_arg[1024] = "";
   char usb_id[16];
-  char target_root[1024];
-  char target_path[1024];
-  char err[256] = {0};
-  uint64_t target_free = 0;
-  gc_game_t game;
+  char target_root[1024] = "";
   int copy_only = transfer_action_copy_only(action);
 
   if(!websrv_get_query_arg(req, "titleId", title_id, sizeof(title_id)) ||
      !valid_title_id(title_id)) {
     return serve_error(req, 400, "bad titleId");
   }
-  if(websrv_get_query_arg(req, "sourcePath", source_path_arg,
-                          sizeof(source_path_arg)) &&
-     !path_is_safe(source_path_arg)) {
+  int source_rc = get_required_source_path_arg(req, source_path_arg,
+                                               sizeof(source_path_arg));
+  if(source_rc == -2) {
+    return serve_error(req, 400, "sourcePath required");
+  }
+  if(source_rc != 0) {
     return serve_error(req, 400, "bad source path");
   }
   pthread_mutex_lock(&g_gc_lock);
@@ -8535,64 +7478,25 @@ enqueue_move_action(const http_request_t *req, gc_action_t action) {
     return serve_error(req, 409, "action already running for this game");
   }
   pthread_mutex_unlock(&g_gc_lock);
-  if(find_game_by_title_source_ex(title_id, source_path_arg, &game, 0) != 0 ||
-     game.source_kind == GC_SOURCE_UNKNOWN) {
-    return serve_error(req, 404,
-                       source_path_arg[0] ? "game source is unavailable" :
-                       "game is not mounted");
-  }
-
   if(transfer_action_to_external(action)) {
-    gc_usb_target_t usb;
+    const gc_storage_target_def_t *def;
     if(!websrv_get_query_arg(req, "usbId", usb_id, sizeof(usb_id)) ||
-       usb_target_for_id(usb_id, &usb) != 0) {
+       storage_target_root_for_id(usb_id, target_root,
+                                  sizeof(target_root), NULL) != 0 ||
+       !(def = storage_target_def_for_id(usb_id))) {
       return serve_error(req, 400, "bad storage target");
     }
-    if(path_under_root(game.source_path, usb.root)) {
+    if(path_under_root(source_path_arg, def->root)) {
       return serve_error(req, 409,
                          "game is already on selected external storage");
     }
-    snprintf(target_root, sizeof(target_root), "%s", usb.target_root);
-    target_free = usb.free_bytes;
   } else if(transfer_action_to_internal(action)) {
     snprintf(target_root, sizeof(target_root), "%s", GC_INTERNAL_GAME_ROOT);
-    if(path_under_root(game.source_path, "/data")) {
+    if(path_under_root(source_path_arg, "/data")) {
       return serve_error(req, 409, "game is already on internal SSD");
-    }
-    if(space_for_path(target_root, &target_free, NULL) != 0) {
-      return serve_error(req, 500, "internal SSD is unavailable");
     }
   } else {
     return serve_error(req, 400, "bad transfer action");
-  }
-
-  if(build_move_target_path(target_root, game.source_path, target_path,
-                            sizeof(target_path), err, sizeof(err)) != 0) {
-    return serve_error(req, 400, err[0] ? err : "bad move target");
-  }
-  if(!strcmp(game.source_path, target_path)) {
-    return serve_error(req, 409, "game is already in that location");
-  }
-  struct stat st;
-  if(stat(target_path, &st) == 0) {
-    return serve_error(req, 409, "target already exists");
-  }
-  if(target_free < game.source_size) {
-    json_buf_t problem = {0};
-    uint64_t extra = game.source_size - target_free;
-    if(json_append(&problem,
-                   "{\"ok\":false,\"error\":\"not enough free storage\","
-                   "\"lowSpace\":true,\"canStreamDelete\":false") != 0 ||
-       json_appendf(&problem,
-                    ",\"requiredBytes\":%llu,\"freeBytes\":%llu,"
-                    "\"extraBytes\":%llu}",
-                    (unsigned long long)game.source_size,
-                    (unsigned long long)target_free,
-                    (unsigned long long)extra) != 0) {
-      free(problem.data);
-      return -1;
-    }
-    return serve_owned(req, 409, problem.data, problem.len);
   }
 
   pthread_mutex_lock(&g_gc_lock);
@@ -8614,11 +7518,10 @@ enqueue_move_action(const http_request_t *req, gc_action_t action) {
   op->status = GC_OP_QUEUED;
   op->created_at = time(NULL);
   snprintf(op->title_id, sizeof(op->title_id), "%s", title_id);
-  snprintf(op->display_name, sizeof(op->display_name), "%s", game.name);
-  snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
-  snprintf(op->output_path, sizeof(op->output_path), "%s", target_path);
+  snprintf(op->display_name, sizeof(op->display_name), "%s", title_id);
+  snprintf(op->source_path, sizeof(op->source_path), "%s", source_path_arg);
   snprintf(op->source_kind, sizeof(op->source_kind), "%s",
-           source_kind_name(game.source_kind));
+           source_kind_name_from_path(source_path_arg));
   snprintf(op->format, sizeof(op->format), "%s", "pfs");
   snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "after");
   if(copy_only) {
@@ -8649,7 +7552,6 @@ enqueue_delete_game_data_action(const http_request_t *req) {
   char title_id[64];
   char source_path_arg[1024] = "";
   char confirm_arg[16] = "";
-  gc_game_t game;
 
   if(strcmp(req->method, "POST")) {
     return serve_error(req, 405, "method not allowed");
@@ -8658,9 +7560,12 @@ enqueue_delete_game_data_action(const http_request_t *req) {
      !valid_title_id(title_id)) {
     return serve_error(req, 400, "bad titleId");
   }
-  if(websrv_get_query_arg(req, "sourcePath", source_path_arg,
-                          sizeof(source_path_arg)) &&
-     !path_is_safe(source_path_arg)) {
+  int source_rc = get_required_source_path_arg(req, source_path_arg,
+                                               sizeof(source_path_arg));
+  if(source_rc == -2) {
+    return serve_error(req, 400, "sourcePath required");
+  }
+  if(source_rc != 0) {
     return serve_error(req, 400, "bad source path");
   }
   if(!websrv_get_query_arg(req, "confirm", confirm_arg,
@@ -8676,17 +7581,6 @@ enqueue_delete_game_data_action(const http_request_t *req) {
     return serve_error(req, 409, "action already running for this game");
   }
   pthread_mutex_unlock(&g_gc_lock);
-
-  if(find_game_by_title_source_ex(title_id, source_path_arg, &game, 0) != 0 ||
-     game.source_kind == GC_SOURCE_UNKNOWN) {
-    return serve_error(req, 404,
-                       source_path_arg[0] ? "game source is unavailable" :
-                       "game is unavailable");
-  }
-  if(!game_source_delete_allowed(&game)) {
-    return serve_error(req, 400,
-                       "game source cannot be deleted from this location");
-  }
 
   pthread_mutex_lock(&g_gc_lock);
   if(active_op_for_title_locked(title_id) ||
@@ -8708,11 +7602,11 @@ enqueue_delete_game_data_action(const http_request_t *req) {
   op->status = GC_OP_QUEUED;
   op->created_at = time(NULL);
   snprintf(op->title_id, sizeof(op->title_id), "%s", title_id);
-  snprintf(op->display_name, sizeof(op->display_name), "%s", game.name);
-  snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
-  snprintf(op->output_path, sizeof(op->output_path), "%s", game.source_path);
+  snprintf(op->display_name, sizeof(op->display_name), "%s", title_id);
+  snprintf(op->source_path, sizeof(op->source_path), "%s", source_path_arg);
+  snprintf(op->output_path, sizeof(op->output_path), "%s", source_path_arg);
   snprintf(op->source_kind, sizeof(op->source_kind), "%s",
-           source_kind_name(game.source_kind));
+           source_kind_name_from_path(source_path_arg));
   snprintf(op->format, sizeof(op->format), "%s", "none");
   snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "delete");
   append_operation_logs(op);
@@ -8738,9 +7632,6 @@ static int
 enqueue_read_test_action(const http_request_t *req, gc_action_t action) {
   char title_id[64];
   char source_path_arg[1024] = "";
-  char read_root[1024] = {0};
-  char err[256] = {0};
-  gc_game_t game;
 
   if(strcmp(req->method, "POST")) {
     return serve_error(req, 405, "method not allowed");
@@ -8749,9 +7640,12 @@ enqueue_read_test_action(const http_request_t *req, gc_action_t action) {
      !valid_title_id(title_id)) {
     return serve_error(req, 400, "bad titleId");
   }
-  if(websrv_get_query_arg(req, "sourcePath", source_path_arg,
-                          sizeof(source_path_arg)) &&
-     !path_is_safe(source_path_arg)) {
+  int source_rc = get_required_source_path_arg(req, source_path_arg,
+                                               sizeof(source_path_arg));
+  if(source_rc == -2) {
+    return serve_error(req, 400, "sourcePath required");
+  }
+  if(source_rc != 0) {
     return serve_error(req, 400, "bad source path");
   }
 
@@ -8762,17 +7656,6 @@ enqueue_read_test_action(const http_request_t *req, gc_action_t action) {
     return serve_error(req, 409, "action already running for this game");
   }
   pthread_mutex_unlock(&g_gc_lock);
-
-  if(find_game_by_title_source_ex(title_id, source_path_arg, &game, 0) != 0 ||
-     game.source_kind == GC_SOURCE_UNKNOWN) {
-    return serve_error(req, 404,
-                       source_path_arg[0] ? "game source is unavailable" :
-                       "game is unavailable");
-  }
-  if(read_speed_mount_root(&game, read_root, sizeof(read_root),
-                           err, sizeof(err)) != 0) {
-    return serve_error(req, 409, err[0] ? err : "game is not mounted");
-  }
 
   pthread_mutex_lock(&g_gc_lock);
   if(active_op_for_title_locked(title_id) ||
@@ -8794,18 +7677,16 @@ enqueue_read_test_action(const http_request_t *req, gc_action_t action) {
   op->status = GC_OP_QUEUED;
   op->created_at = time(NULL);
   snprintf(op->title_id, sizeof(op->title_id), "%s", title_id);
-  snprintf(op->display_name, sizeof(op->display_name), "%s", game.name);
-  snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
-  snprintf(op->output_path, sizeof(op->output_path), "%s", read_root);
+  snprintf(op->display_name, sizeof(op->display_name), "%s", title_id);
+  snprintf(op->source_path, sizeof(op->source_path), "%s", source_path_arg);
   snprintf(op->source_kind, sizeof(op->source_kind), "%s",
-           source_kind_name(game.source_kind));
+           source_kind_name_from_path(source_path_arg));
   snprintf(op->format, sizeof(op->format), "%s",
            action == GC_ACTION_READ_EOF_TEST ? "read-eof" : "read");
   snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "none");
   if(action == GC_ACTION_READ_EOF_TEST) {
-    snprintf(op->read_root, sizeof(op->read_root), "%s", read_root);
     snprintf(op->read_storage, sizeof(op->read_storage), "%s",
-             storage_name_for_path(game.source_path));
+             storage_name_for_path(source_path_arg));
   }
   append_operation_logs(op);
   start_next_locked();
@@ -9218,9 +8099,18 @@ static int
 history_operation_key(const char *id, uint64_t created_at,
                       char *out, size_t out_size) {
   char base[64];
+  const char *source = id ? id : "";
+  const char *colon = strchr(source, ':');
+  size_t len = colon ? (size_t)(colon - source) : strlen(source);
   int n;
   if(!out || out_size == 0) return -1;
-  history_base_id(id, base, sizeof(base));
+  if(len == 0) {
+    snprintf(base, sizeof(base), "%s", "recovery");
+  } else {
+    if(len >= sizeof(base)) len = sizeof(base) - 1;
+    memcpy(base, source, len);
+    base[len] = 0;
+  }
   if(created_at != 0) {
     n = snprintf(out, out_size, "%s:%llu", base,
                  (unsigned long long)created_at);
@@ -9604,9 +8494,11 @@ job_request(const http_request_t *req) {
   long stream_reverse_files = atomic_load(&g_job.stream_reverse_files);
   int destructive_stream_active =
       atomic_load(&g_job.destructive_stream_active) != 0;
+  int cancel_disabled = atomic_load(&g_job.cancel_disabled) != 0;
   int cancel_requested = atomic_load(&g_job.cancel) != 0;
   int rollback_requested = atomic_load(&g_job.rollback_requested) != 0;
   char current[512], phase[32], verb[16], err[256], active_id[32] = {0};
+  char cancel_disabled_reason[128] = {0};
   time_t started_at = 0;
   long elapsed_seconds = 0;
   long speed_metric_bytes = 0;
@@ -9618,6 +8510,8 @@ job_request(const http_request_t *req) {
   snprintf(phase, sizeof(phase), "%s", g_job.phase);
   snprintf(verb, sizeof(verb), "%s", g_job.verb);
   snprintf(err, sizeof(err), "%s", g_job.error);
+  snprintf(cancel_disabled_reason, sizeof(cancel_disabled_reason), "%s",
+           g_job.cancel_disabled_reason);
   started_at = g_job.started_at;
   pthread_mutex_unlock(&g_job.lock);
 
@@ -9627,7 +8521,18 @@ job_request(const http_request_t *req) {
   }
   pthread_mutex_lock(&g_gc_lock);
   gc_operation_t *active = active_op_locked();
-  if(active) snprintf(active_id, sizeof(active_id), "%s", active->id);
+  if(active) {
+    snprintf(active_id, sizeof(active_id), "%s", active->id);
+    if(active->action == GC_ACTION_COMPRESS &&
+       !strcmp(active->delete_policy, "stream") &&
+       destructive_stream_active) {
+      cancel_disabled = 1;
+      if(!cancel_disabled_reason[0]) {
+        snprintf(cancel_disabled_reason, sizeof(cancel_disabled_reason), "%s",
+                 "unsafe compression cannot be cancelled after it starts");
+      }
+    }
+  }
   pthread_mutex_unlock(&g_gc_lock);
 
   speed_metric_bytes = job_speed_metric_bytes(
@@ -9672,12 +8577,14 @@ job_request(const http_request_t *req) {
     stream_forward_files = 0;
     stream_reverse_files = 0;
     destructive_stream_active = 0;
+    cancel_disabled = 0;
     cancel_requested = 0;
     rollback_requested = 0;
     current[0] = 0;
     phase[0] = 0;
     verb[0] = 0;
     err[0] = 0;
+    cancel_disabled_reason[0] = 0;
     active_id[0] = 0;
     started_at = 0;
     elapsed_seconds = 0;
@@ -9730,19 +8637,13 @@ job_request(const http_request_t *req) {
 	                  "\"streamReverseTempBytes\":%ld,"
 	                  "\"streamForwardFiles\":%ld,"
 	                  "\"streamReverseFiles\":%ld,"
-	                  "\"destructiveStreamActive\":%s,"
-	                  "\"cancelRequested\":%s,"
-	                  "\"rollbackRequested\":%s,"
-		                  "\"startedAt\":%ld,"
-		                  "\"elapsedSeconds\":%ld,"
-		                  "\"speedMetricBytes\":%ld,"
-		                  "\"speedBytesPerSec\":%ld,"
-		                  "\"compressBytesPerSecond\":%ld,"
-		                  "\"speedSource\":",
+		                  "\"destructiveStreamActive\":%s,"
+		                  "\"cancelDisabled\":%s,"
+		                  "\"cancelDisabledReason\":",
 		                  total, copied, compressed_output,
 		                  total_blocks, done_blocks, raw_blocks,
-	                  compressed_blocks, skipped_zlib_blocks,
-	                  phase_step, phase_count,
+                  compressed_blocks, skipped_zlib_blocks,
+                  phase_step, phase_count,
                   bad_blocks_found, bad_blocks_found, repaired_blocks,
                   hash_checked, hash_matched, hash_mismatched,
                   software_compared,
@@ -9755,8 +8656,19 @@ job_request(const http_request_t *req) {
 	                  stream_deleted, stream_reverse_temp,
 	                  stream_forward_files, stream_reverse_files,
 	                  destructive_stream_active ? "true" : "false",
-	                  cancel_requested ? "true" : "false",
-	                  rollback_requested ? "true" : "false",
+	                  cancel_disabled ? "true" : "false") != 0 ||
+     json_string(&b, cancel_disabled_reason) != 0 ||
+     json_appendf(&b,
+		                  ",\"cancelRequested\":%s,"
+		                  "\"rollbackRequested\":%s,"
+		                  "\"startedAt\":%ld,"
+		                  "\"elapsedSeconds\":%ld,"
+		                  "\"speedMetricBytes\":%ld,"
+		                  "\"speedBytesPerSec\":%ld,"
+		                  "\"compressBytesPerSecond\":%ld,"
+		                  "\"speedSource\":",
+		                  cancel_requested ? "true" : "false",
+		                  rollback_requested ? "true" : "false",
 		                  (long)started_at, elapsed_seconds,
 		                  speed_metric_bytes, speed_bytes_per_second,
 		                  speed_bytes_per_second) != 0 ||
@@ -9798,27 +8710,8 @@ gc_api_handoff_state_request(const http_request_t *req) {
     snprintf(action, sizeof(action), "%s", action_name(active->action));
     snprintf(phase, sizeof(phase), "%s",
              active->phase[0] ? active->phase : job_phase);
-    resumable = history_action_phase_is_resumable(action, phase);
-    if(active->action == GC_ACTION_COMPRESS &&
-       !strcmp(active->delete_policy, "stream") &&
-       !strcmp(phase, "compressing") &&
-       active->output_path[0]) {
-      char journal_path[1024];
-      struct stat st;
-      if(recovery_stream_journal_path_for_output(active->output_path,
-                                                 journal_path,
-                                                 sizeof(journal_path)) == 0 &&
-         stat(journal_path, &st) == 0 && S_ISREG(st.st_mode)) {
-        resumable = 1;
-      }
-    }
-    if(active->action == GC_ACTION_VALIDATE_REPAIR ||
-       active->action == GC_ACTION_VALIDATE_ONLY) {
-      resumable = 1;
-    }
     busy = 1;
-    reason = resumable ? "active work can resume automatically" :
-        "active work is not resumable";
+    reason = "active operation recovery is disabled";
   } else if(job_busy) {
     snprintf(action, sizeof(action), "%s", "unknown");
     snprintf(phase, sizeof(phase), "%s", job_phase);
@@ -9826,8 +8719,7 @@ gc_api_handoff_state_request(const http_request_t *req) {
     reason = "active job is not attached to a resumable operation";
   } else if(pending_count > 0) {
     busy = 1;
-    resumable = 1;
-    reason = "pending work can resume automatically";
+    reason = "pending operation recovery is disabled";
   }
   pthread_mutex_unlock(&g_gc_lock);
 
@@ -9862,8 +8754,18 @@ gc_api_handoff_state_request(const http_request_t *req) {
 static int
 cancel_active_request(const http_request_t *req) {
   int active_stream_compress = 0;
+  int cancel_disabled = atomic_load(&g_job.cancel_disabled) != 0;
   int destructive_stream_active =
       atomic_load(&g_job.destructive_stream_active) != 0;
+  char cancel_disabled_reason[128] = {0};
+  if(cancel_disabled) {
+    pthread_mutex_lock(&g_job.lock);
+    snprintf(cancel_disabled_reason, sizeof(cancel_disabled_reason), "%s",
+             g_job.cancel_disabled_reason[0] ? g_job.cancel_disabled_reason :
+             "operation cannot be cancelled");
+    pthread_mutex_unlock(&g_job.lock);
+    return serve_error(req, 409, cancel_disabled_reason);
+  }
   pthread_mutex_lock(&g_gc_lock);
   gc_operation_t *active = active_op_locked();
   if(active && active->action == GC_ACTION_COMPRESS &&
@@ -9944,104 +8846,11 @@ gc_api_icon_request(const http_request_t *req) {
   return rc;
 }
 
-static int
-operation_recovery_on_startup_enabled(void) {
-  return 0;
-}
-
 void
 gc_api_recover_on_startup(void) {
   cleanup_force_remount_temps_on_startup();
+  cleanup_delete_pending_temps_on_startup();
   mount_switch_restore_recovery_log();
-
-  if(!operation_recovery_on_startup_enabled()) {
-    gc_log("operation recovery disabled; skipping %s", GC_RECOVERY_LOG);
-    return;
-  }
-
-  FILE *f = fopen(GC_RECOVERY_LOG, "r");
-  if(!f) return;
-
-  typedef struct recovery_slot {
-    char key[GC_HISTORY_KEY_SIZE];
-    gc_history_recovery_event_t ev;
-    uint64_t order;
-    uint64_t seq;
-  } recovery_slot_t;
-
-  recovery_slot_t latest[GC_MAX_OPS];
-  size_t count = 0;
-  uint64_t order = 1;
-  char line[16384];
-  memset(latest, 0, sizeof(latest));
-  while(fgets(line, sizeof(line), f)) {
-    gc_history_recovery_event_t ev;
-    char key[GC_HISTORY_KEY_SIZE];
-    uint64_t seq;
-    int slot = -1;
-    line[strcspn(line, "\r\n")] = 0;
-    if(recovery_event_from_log_line(line, &ev) != 0) continue;
-    if(history_operation_key(ev.id, (uint64_t)ev.created_at,
-                             key, sizeof(key)) != 0) {
-      continue;
-    }
-    seq = operation_seq_from_id(ev.id);
-    if(seq >= g_next_seq) g_next_seq = seq + 1;
-    for(size_t i = 0; i < count; i++) {
-      if(!strcmp(latest[i].key, key)) {
-        slot = (int)i;
-        break;
-      }
-    }
-    if(slot < 0) {
-      if(count >= GC_MAX_OPS) continue;
-      slot = (int)count++;
-      snprintf(latest[slot].key, sizeof(latest[slot].key), "%s", key);
-    }
-    latest[slot].ev = ev;
-    latest[slot].order = order++;
-    latest[slot].seq = seq;
-  }
-  fclose(f);
-
-  if(!count) return;
-  gc_checkpoint("recovery journal scan");
-  for(size_t emitted = 0; emitted < count; emitted++) {
-    int best = -1;
-    uint64_t best_seq = UINT64_MAX;
-    uint64_t best_order = UINT64_MAX;
-    for(size_t i = 0; i < count; i++) {
-      if(latest[i].order == 0) continue;
-      uint64_t seq = latest[i].seq ? latest[i].seq : UINT64_MAX;
-      if(seq < best_seq || (seq == best_seq && latest[i].order < best_order)) {
-        best = (int)i;
-        best_seq = seq;
-        best_order = latest[i].order;
-      }
-    }
-    if(best < 0) break;
-    latest[best].order = 0;
-    gc_history_recovery_event_t *ev = &latest[best].ev;
-    if(history_status_is_pending(ev->status)) {
-      (void)recovery_restore_queued_op(ev);
-      continue;
-    }
-    if(strcmp(ev->status, "running")) {
-      continue;
-    }
-    if(history_action_phase_is_resumable(ev->action, ev->phase) ||
-       history_phase_is_recoverable(ev->phase)) {
-      gc_log("recovery processing id=%s title=%s action=%s phase=%s output=%s",
-             ev->id, ev->title_id, ev->action, ev->phase, ev->output_path);
-      (void)recovery_process_history_event(ev);
-    } else {
-      gc_log("recovery cancelling non-resumable id=%s title=%s action=%s phase=%s",
-             ev->id, ev->title_id, ev->action, ev->phase);
-      recovery_append_terminal_history(
-          ev, GC_OP_CANCELLED, "cancelled",
-          "recovered non-resumable operation after restart");
-    }
-  }
 }
 
 int

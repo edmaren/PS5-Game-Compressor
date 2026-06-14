@@ -80,6 +80,7 @@ struct job_state {
   atomic_int      total_files;
   atomic_int      done_files;
   atomic_int      failed_files;
+  atomic_int      cancel_disabled;
   atomic_int      destructive_stream_active;
   atomic_int      rollback_requested;
   char            current[512];
@@ -88,6 +89,7 @@ struct job_state {
   char            target[1024];
   char            log_path[1024];
   char            error[256];
+  char            cancel_disabled_reason[128];
   time_t          started_at;
   time_t          ended_at;
 };
