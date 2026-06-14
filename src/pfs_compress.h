@@ -47,7 +47,6 @@ typedef struct pfs_decompress_info {
 #define PFS_COMPRESS_FORMAT_PFS   0
 #define PFS_COMPRESS_FORMAT_EXFAT 1
 
-#define PFS_COMPRESS_SOURCE_UNKNOWN 0
 #define PFS_COMPRESS_SOURCE_APP     1
 #define PFS_COMPRESS_SOURCE_IMAGE   2
 

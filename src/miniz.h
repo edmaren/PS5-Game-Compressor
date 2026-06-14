@@ -1,11 +1,5 @@
 #pragma once
 
-#define MINIZ_NO_STDIO
-#define MINIZ_NO_TIME
-#define MINIZ_NO_ARCHIVE_APIS
-#define MINIZ_NO_ARCHIVE_WRITING_APIS
-#define MINIZ_NO_ZLIB_APIS
-
 #if defined(__STRICT_ANSI__)
 #define MZ_FORCEINLINE
 #elif defined(_MSC_VER)
@@ -52,10 +46,6 @@ enum {
 };
 
 enum {
-    MZ_NO_COMPRESSION = 0,
     MZ_BEST_SPEED = 1,
-    MZ_BEST_COMPRESSION = 9,
-    MZ_UBER_COMPRESSION = 10,
-    MZ_DEFAULT_LEVEL = 6,
-    MZ_DEFAULT_COMPRESSION = -1
+    MZ_DEFAULT_LEVEL = 6
 };

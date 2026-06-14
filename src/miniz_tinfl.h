@@ -29,9 +29,6 @@ extern "C"
     struct tinfl_decompressor_tag;
     typedef struct tinfl_decompressor_tag tinfl_decompressor;
 
-/* Max size of LZ dictionary. */
-#define TINFL_LZ_DICT_SIZE 32768
-
     /* Return status. */
     typedef enum
     {
@@ -74,8 +71,6 @@ extern "C"
         (r)->m_state = 0; \
     }                     \
     MZ_MACRO_END
-#define tinfl_get_adler32(r) (r)->m_check_adler32
-
     /* Internal/private bits follow. */
     enum
     {

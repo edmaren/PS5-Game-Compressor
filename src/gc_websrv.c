@@ -308,9 +308,7 @@ diag_request(const http_request_t *req) {
                    "\"/api/gc/move-to-usb\","
                    "\"/api/gc/move-to-internal\","
 	                   "\"/api/gc/delete-game-data\","
-	                   "\"/api/gc/read-speed-test\","
-	                   "\"/api/gc/read-eof-test\","
-	                   "\"/api/gc/original-restore\"]}",
+	                   "\"/api/gc/read-speed-test\"]}",
                    checkpoint,
                    json_bool(launcher.launcher_enabled),
                    json_bool(launcher.launcher_attempted),
@@ -409,9 +407,7 @@ dispatch_request(const http_request_t *req) {
        !strcmp(req->path, "/api/gc/copy-to-usb") ||
 	       !strcmp(req->path, "/api/gc/copy-to-internal") ||
 	       !strcmp(req->path, "/api/gc/delete-game-data") ||
-	       !strcmp(req->path, "/api/gc/read-speed-test") ||
-	       !strcmp(req->path, "/api/gc/read-eof-test") ||
-	       !strcmp(req->path, "/api/gc/original-restore")) {
+	       !strcmp(req->path, "/api/gc/read-speed-test")) {
 	      return gc_api_request(req, req->path);
 	    }
     return websrv_send_error_json(req->fd, 404, "not found");

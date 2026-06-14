@@ -20,7 +20,6 @@ typedef struct json_buf {
 } json_buf_t;
 
 typedef struct du_state {
-  dev_t     root_dev;
   uint64_t  entries;
   uint64_t  files;
   uint64_t  dirs;

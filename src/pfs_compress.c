@@ -344,11 +344,11 @@ typedef struct pfsc_output_buffer {
   uint64_t offset;
 } pfsc_output_buffer_t;
 
-typedef enum pfsc_window_phase {
+enum pfsc_window_phase {
   PFSC_WINDOW_PHASE_IDLE = 0,
   PFSC_WINDOW_PHASE_READ,
   PFSC_WINDOW_PHASE_WRITE,
-} pfsc_window_phase_t;
+};
 
 typedef enum pfsc_window_task_type {
   PFSC_WINDOW_TASK_READ = 1,

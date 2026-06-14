@@ -135,7 +135,6 @@ typedef enum gc_action {
   GC_ACTION_REFRESH_MOUNT,
   GC_ACTION_DELETE_GAME_DATA,
   GC_ACTION_READ_SPEED_TEST,
-  GC_ACTION_READ_EOF_TEST,
 } gc_action_t;
 
 typedef enum gc_op_status {
@@ -341,7 +340,6 @@ action_name(gc_action_t action) {
   if(action == GC_ACTION_REFRESH_MOUNT) return "refresh-mount";
   if(action == GC_ACTION_DELETE_GAME_DATA) return "delete-game-data";
   if(action == GC_ACTION_READ_SPEED_TEST) return "read-speed-test";
-  if(action == GC_ACTION_READ_EOF_TEST) return "read-eof-test";
   return "unknown";
 }
 
@@ -6405,336 +6403,6 @@ run_read_speed_test_op(gc_operation_t *op) {
   return 0;
 }
 
-typedef struct gc_read_eof_ctx {
-  uint64_t started_ms;
-  uint64_t window_started_ms;
-  uint64_t window_bytes;
-  uint64_t bytes_read;
-  uint64_t files_read;
-  uint64_t dirs_read;
-  uint64_t elapsed_ms;
-  uint64_t avg_bps;
-  uint64_t min_bps;
-  uint64_t max_bps;
-  uint64_t errors;
-  uint64_t skipped;
-  char first_error_path[1024];
-  char first_error[256];
-  char *buf;
-} gc_read_eof_ctx_t;
-
-static void
-read_eof_store_progress(const gc_read_eof_ctx_t *ctx) {
-  if(!ctx) return;
-  job_store_u64(&g_job.copied_bytes, ctx->bytes_read);
-  job_store_u64(&g_job.phase_step, ctx->bytes_read);
-  atomic_store(&g_job.done_files,
-               ctx->files_read > (uint64_t)INT_MAX ? INT_MAX :
-               (int)ctx->files_read);
-  atomic_store(&g_job.failed_files,
-               ctx->errors > (uint64_t)INT_MAX ? INT_MAX :
-               (int)ctx->errors);
-}
-
-static void
-read_eof_note_error(gc_read_eof_ctx_t *ctx,
-                    const char *path,
-                    const char *message) {
-  if(!ctx) return;
-  ctx->errors++;
-  if(!ctx->first_error[0]) {
-    snprintf(ctx->first_error_path, sizeof(ctx->first_error_path), "%s",
-             path ? path : "");
-    snprintf(ctx->first_error, sizeof(ctx->first_error), "%s",
-             message && message[0] ? message : "read error");
-  }
-}
-
-static void
-read_eof_record_window(gc_read_eof_ctx_t *ctx, uint64_t elapsed_ms) {
-  if(!ctx || elapsed_ms == 0 || ctx->window_bytes == 0) return;
-  uint64_t bps = (ctx->window_bytes * 1000ULL) / elapsed_ms;
-  if(bps == 0) return;
-  if(ctx->min_bps == 0 || bps < ctx->min_bps) ctx->min_bps = bps;
-  if(bps > ctx->max_bps) ctx->max_bps = bps;
-}
-
-static void
-read_eof_account_bytes(gc_read_eof_ctx_t *ctx, uint64_t bytes) {
-  uint64_t now = monotonic_millis_gc();
-  if(!ctx) return;
-  ctx->bytes_read += bytes;
-  ctx->window_bytes += bytes;
-  if(now > ctx->window_started_ms &&
-     now - ctx->window_started_ms >= 1000ULL) {
-    read_eof_record_window(ctx, now - ctx->window_started_ms);
-    ctx->window_started_ms = now;
-    ctx->window_bytes = 0;
-  }
-  read_eof_store_progress(ctx);
-}
-
-static void
-read_eof_finish_metrics(gc_read_eof_ctx_t *ctx) {
-  uint64_t now = monotonic_millis_gc();
-  if(!ctx) return;
-  if(now > ctx->window_started_ms) {
-    read_eof_record_window(ctx, now - ctx->window_started_ms);
-  }
-  ctx->elapsed_ms = now > ctx->started_ms ? now - ctx->started_ms : 1;
-  if(ctx->elapsed_ms == 0) ctx->elapsed_ms = 1;
-  ctx->avg_bps = (ctx->bytes_read * 1000ULL) / ctx->elapsed_ms;
-  if(ctx->min_bps == 0 && ctx->avg_bps > 0) ctx->min_bps = ctx->avg_bps;
-  if(ctx->max_bps == 0 && ctx->avg_bps > 0) ctx->max_bps = ctx->avg_bps;
-  read_eof_store_progress(ctx);
-}
-
-static int
-read_eof_file(const char *path, gc_read_eof_ctx_t *ctx,
-              char *err, size_t err_size) {
-  if(gc_cancel_requested(err, err_size)) return -1;
-  int fd = open(path, O_RDONLY);
-  if(fd < 0) {
-    char msg[256];
-    snprintf(msg, sizeof(msg), "open: %s", strerror(errno));
-    read_eof_note_error(ctx, path, msg);
-    return 0;
-  }
-  ctx->files_read++;
-  job_set_current(path);
-  while(1) {
-    if(gc_cancel_requested(err, err_size)) {
-      close(fd);
-      return -1;
-    }
-    ssize_t n = read(fd, ctx->buf, GC_COPY_CHUNK_SIZE);
-    if(n < 0) {
-      if(errno == EINTR) continue;
-      snprintf(err, err_size, "read eof source: %s", strerror(errno));
-      read_eof_note_error(ctx, path, err);
-      close(fd);
-      return -1;
-    }
-    if(n == 0) break;
-    read_eof_account_bytes(ctx, (uint64_t)n);
-  }
-  close(fd);
-  read_eof_store_progress(ctx);
-  return 0;
-}
-
-static int
-read_eof_walk(const char *path, gc_read_eof_ctx_t *ctx,
-              char *err, size_t err_size) {
-  struct stat st;
-  if(gc_cancel_requested(err, err_size)) return -1;
-  if(lstat(path, &st) != 0) {
-    char msg[256];
-    snprintf(msg, sizeof(msg), "stat: %s", strerror(errno));
-    read_eof_note_error(ctx, path, msg);
-    return 0;
-  }
-  if(gc_cancel_requested(err, err_size)) return -1;
-  if(S_ISREG(st.st_mode)) {
-    return read_eof_file(path, ctx, err, err_size);
-  }
-  if(!S_ISDIR(st.st_mode)) {
-    ctx->skipped++;
-    return 0;
-  }
-
-  ctx->dirs_read++;
-  if(gc_cancel_requested(err, err_size)) return -1;
-  DIR *d = opendir(path);
-  if(!d) {
-    char msg[256];
-    snprintf(msg, sizeof(msg), "opendir: %s", strerror(errno));
-    read_eof_note_error(ctx, path, msg);
-    return 0;
-  }
-  int rc = 0;
-  struct dirent *ent;
-  while(1) {
-    if(gc_cancel_requested(err, err_size)) {
-      rc = -1;
-      break;
-    }
-    ent = readdir(d);
-    if(!ent) break;
-    if(gc_cancel_requested(err, err_size)) {
-      rc = -1;
-      break;
-    }
-    if(!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
-    char child[1024];
-    int n = snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
-    if(n < 0 || (size_t)n >= sizeof(child)) {
-      ctx->skipped++;
-      continue;
-    }
-    if(read_eof_walk(child, ctx, err, err_size) != 0) {
-      rc = -1;
-      break;
-    }
-  }
-  closedir(d);
-  read_eof_store_progress(ctx);
-  return rc;
-}
-
-static void
-operation_store_read_eof_metrics(gc_operation_t *op,
-                                 const gc_read_eof_ctx_t *ctx) {
-  if(!op || !ctx) return;
-  op->read_bytes = ctx->bytes_read;
-  op->read_files = ctx->files_read;
-  op->read_dirs = ctx->dirs_read;
-  op->read_elapsed_ms = ctx->elapsed_ms;
-  op->read_avg_bps = ctx->avg_bps;
-  op->read_min_bps = ctx->min_bps;
-  op->read_max_bps = ctx->max_bps;
-  op->read_errors = ctx->errors;
-  op->read_skipped = ctx->skipped;
-  snprintf(op->read_first_error_path, sizeof(op->read_first_error_path), "%s",
-           ctx->first_error_path);
-  snprintf(op->read_first_error, sizeof(op->read_first_error), "%s",
-           ctx->first_error);
-  op->compression_source_size = ctx->bytes_read;
-  op->compressed_size = ctx->bytes_read;
-  op->saved_bytes = 0;
-}
-
-static int
-run_read_eof_test_op(gc_operation_t *op) {
-  gc_game_t game = {0};
-  gc_read_eof_ctx_t ctx;
-  du_state_t du;
-  struct stat st;
-  char read_root[1024] = {0};
-  char err[256] = {0};
-
-  gc_checkpoint("read-eof find game");
-  gc_log("read-eof start op=%s title=%s", op->id, op->title_id);
-  append_operation_phase(op, "resolving");
-  job_set_phase("resolving", 0, 0, "Resolving selected source");
-  if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
-     game.source_kind == GC_SOURCE_UNKNOWN) {
-    snprintf(op->error, sizeof(op->error), "%s", "game data is unavailable");
-    gc_log("read-eof failed title=%s err=%s", op->title_id, op->error);
-    return -1;
-  }
-  if(gc_cancel_requested(err, sizeof(err))) {
-    snprintf(op->error, sizeof(op->error), "%s", err);
-    return -1;
-  }
-  if(read_speed_mount_root(&game, read_root, sizeof(read_root),
-                           err, sizeof(err)) != 0) {
-    snprintf(op->error, sizeof(op->error), "%s",
-             err[0] ? err : "game is not mounted");
-    gc_log("read-eof mount unavailable title=%s err=%s",
-           op->title_id, op->error);
-    return -1;
-  }
-  if(stat(read_root, &st) != 0 || !S_ISDIR(st.st_mode)) {
-    snprintf(op->error, sizeof(op->error), "%s",
-             "mounted game folder is unavailable");
-    gc_log("read-eof stat failed title=%s root=%s err=%s",
-           op->title_id, read_root, strerror(errno));
-    return -1;
-  }
-
-  snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
-  snprintf(op->output_path, sizeof(op->output_path), "%s", read_root);
-  snprintf(op->source_kind, sizeof(op->source_kind), "%s",
-           source_kind_name(game.source_kind));
-  snprintf(op->format, sizeof(op->format), "%s", "read-eof");
-  snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "none");
-  snprintf(op->read_root, sizeof(op->read_root), "%s", read_root);
-  snprintf(op->read_storage, sizeof(op->read_storage), "%s",
-           storage_name_for_path(game.source_path));
-  job_set_target(read_root);
-
-  memset(&ctx, 0, sizeof(ctx));
-  ctx.buf = malloc(GC_COPY_CHUNK_SIZE);
-  if(!ctx.buf) {
-    snprintf(op->error, sizeof(op->error), "%s", "out of memory");
-    return -1;
-  }
-  ctx.started_ms = monotonic_millis_gc();
-  ctx.window_started_ms = ctx.started_ms;
-
-  if(gc_cancel_requested(err, sizeof(err))) {
-    snprintf(op->error, sizeof(op->error), "%s", err);
-    free(ctx.buf);
-    return -1;
-  }
-  du_walk_cancelable(read_root, &du);
-  if(du.cancelled) {
-    snprintf(op->error, sizeof(op->error), "%s", "cancelled");
-    free(ctx.buf);
-    errno = EINTR;
-    return -1;
-  }
-  job_store_u64(&g_job.total_bytes, du.bytes);
-  atomic_store(&g_job.total_files,
-               du.files > (uint64_t)INT_MAX ? INT_MAX : (int)du.files);
-  atomic_store(&g_job.copied_bytes, 0);
-
-  gc_checkpoint("read-eof scanning");
-  append_operation_phase(op, "read-eof");
-  job_set_phase("read-eof", 0,
-                du.bytes > (uint64_t)LONG_MAX ? LONG_MAX : (long)du.bytes,
-                "Reading mounted game to EOF");
-  gc_log("read-eof reading title=%s root=%s storage=%s files=%llu bytes=%llu",
-         op->title_id, read_root, op->read_storage,
-         (unsigned long long)du.files, (unsigned long long)du.bytes);
-
-  err[0] = 0;
-  int rc = read_eof_walk(read_root, &ctx, err, sizeof(err));
-  read_eof_finish_metrics(&ctx);
-  operation_store_read_eof_metrics(op, &ctx);
-
-  if(rc != 0) {
-    snprintf(op->error, sizeof(op->error), "%s",
-             err[0] ? err : "read eof test failed");
-    free(ctx.buf);
-    return -1;
-  }
-  if(ctx.files_read == 0) {
-    snprintf(op->error, sizeof(op->error), "%s", "no readable files found");
-    free(ctx.buf);
-    return -1;
-  }
-  if(ctx.bytes_read == 0) {
-    snprintf(op->error, sizeof(op->error), "%s", "no readable file data found");
-    free(ctx.buf);
-    return -1;
-  }
-  if(ctx.errors > 0) {
-    snprintf(op->error, sizeof(op->error), "read eof errors=%llu first=%s",
-             (unsigned long long)ctx.errors,
-             ctx.first_error[0] ? ctx.first_error : "unknown");
-    free(ctx.buf);
-    return -1;
-  }
-  if(gc_cancel_requested(err, sizeof(err))) {
-    snprintf(op->error, sizeof(op->error), "%s", err);
-    free(ctx.buf);
-    return -1;
-  }
-
-  snprintf(op->result, sizeof(op->result), "%s", "tested");
-  gc_log("read-eof complete title=%s root=%s bytes=%llu files=%llu dirs=%llu "
-         "elapsedMs=%llu avgBps=%llu minBps=%llu maxBps=%llu skipped=%llu",
-         op->title_id, read_root, (unsigned long long)ctx.bytes_read,
-         (unsigned long long)ctx.files_read, (unsigned long long)ctx.dirs_read,
-         (unsigned long long)ctx.elapsed_ms, (unsigned long long)ctx.avg_bps,
-         (unsigned long long)ctx.min_bps, (unsigned long long)ctx.max_bps,
-         (unsigned long long)ctx.skipped);
-  free(ctx.buf);
-  return 0;
-}
-
 static int
 run_delete_game_data_op(gc_operation_t *op) {
   gc_game_t game = {0};
@@ -6904,8 +6572,6 @@ operation_thread(void *arg) {
     rc = run_delete_game_data_op(op);
 	  } else if(op->action == GC_ACTION_READ_SPEED_TEST) {
 	    rc = run_read_speed_test_op(op);
-  } else if(op->action == GC_ACTION_READ_EOF_TEST) {
-    rc = run_read_eof_test_op(op);
 	  }
 
   int cancelled = job_cancelled();
@@ -7629,7 +7295,7 @@ enqueue_delete_game_data_action(const http_request_t *req) {
 }
 
 static int
-enqueue_read_test_action(const http_request_t *req, gc_action_t action) {
+enqueue_read_speed_test_action(const http_request_t *req) {
   char title_id[64];
   char source_path_arg[1024] = "";
 
@@ -7673,7 +7339,7 @@ enqueue_read_test_action(const http_request_t *req, gc_action_t action) {
   op->seq = g_next_seq++;
   snprintf(op->id, sizeof(op->id), "op-%llu",
            (unsigned long long)op->seq);
-  op->action = action;
+  op->action = GC_ACTION_READ_SPEED_TEST;
   op->status = GC_OP_QUEUED;
   op->created_at = time(NULL);
   snprintf(op->title_id, sizeof(op->title_id), "%s", title_id);
@@ -7681,13 +7347,8 @@ enqueue_read_test_action(const http_request_t *req, gc_action_t action) {
   snprintf(op->source_path, sizeof(op->source_path), "%s", source_path_arg);
   snprintf(op->source_kind, sizeof(op->source_kind), "%s",
            source_kind_name_from_path(source_path_arg));
-  snprintf(op->format, sizeof(op->format), "%s",
-           action == GC_ACTION_READ_EOF_TEST ? "read-eof" : "read");
+  snprintf(op->format, sizeof(op->format), "%s", "read");
   snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "none");
-  if(action == GC_ACTION_READ_EOF_TEST) {
-    snprintf(op->read_storage, sizeof(op->read_storage), "%s",
-             storage_name_for_path(source_path_arg));
-  }
   append_operation_logs(op);
   start_next_locked();
   gc_op_status_t status = op->status;
@@ -7701,90 +7362,6 @@ enqueue_read_test_action(const http_request_t *req, gc_action_t action) {
      json_append(&b, ",\"status\":") != 0 ||
      json_string(&b, status_name(status)) != 0 ||
      json_append(&b, "}") != 0) {
-    free(b.data);
-    return -1;
-  }
-  return serve_owned(req, 200, b.data, b.len);
-}
-
-static int
-enqueue_read_speed_test_action(const http_request_t *req) {
-  return enqueue_read_test_action(req, GC_ACTION_READ_SPEED_TEST);
-}
-
-static int
-enqueue_read_eof_test_action(const http_request_t *req) {
-  return enqueue_read_test_action(req, GC_ACTION_READ_EOF_TEST);
-}
-
-static int
-original_restore_request(const http_request_t *req) {
-  char path[1024] = "";
-  char hidden_path[1024] = "";
-  char scan_err[256] = {0};
-  struct stat visible_st;
-  struct stat hidden_st;
-  int visible_exists;
-  int hidden_exists;
-  int restored = 0;
-  int already_visible = 0;
-
-  if(strcmp(req->method, "POST")) {
-    return serve_error(req, 405, "method not allowed");
-  }
-  if(!websrv_get_query_arg(req, "path", path, sizeof(path)) &&
-     !websrv_get_query_arg(req, "sourcePath", path, sizeof(path))) {
-    return serve_error(req, 400, "missing path");
-  }
-  if(!path_is_safe(path)) {
-    return serve_error(req, 400, "bad path");
-  }
-  if(build_preserved_original_path(path, hidden_path, sizeof(hidden_path)) != 0) {
-    return serve_error(req, 400, "bad preserved original path");
-  }
-
-  pthread_mutex_lock(&g_gc_lock);
-  if(active_op_locked()) {
-    pthread_mutex_unlock(&g_gc_lock);
-    return serve_error(req, 409, "action already running");
-  }
-  pthread_mutex_unlock(&g_gc_lock);
-
-  visible_exists = lstat(path, &visible_st) == 0;
-  hidden_exists = lstat(hidden_path, &hidden_st) == 0;
-  if(visible_exists && hidden_exists) {
-    return serve_error(req, 409, "visible and hidden originals both exist");
-  }
-  if(visible_exists) {
-    already_visible = 1;
-  } else if(hidden_exists) {
-    if(rename(hidden_path, path) != 0) {
-      return serve_error(req, 500, strerror(errno));
-    }
-    fsync_parent_dir_best_effort(path);
-    restored = 1;
-    size_cache_forget(hidden_path);
-    size_cache_forget(path);
-    artifact_cache_invalidate();
-    if(gc_shadowmount_request_scan(scan_err, sizeof(scan_err)) != 0) {
-      gc_log("original restore scan request failed path=%s err=%s",
-             path, scan_err[0] ? scan_err : "unknown");
-    }
-    gc_log("original restored path=%s hidden=%s", path, hidden_path);
-  } else {
-    return serve_error(req, 404, "hidden original is unavailable");
-  }
-
-  json_buf_t b = {0};
-  if(json_append(&b, "{\"ok\":true,\"path\":") != 0 ||
-     json_string(&b, path) != 0 ||
-     json_append(&b, ",\"hiddenPath\":") != 0 ||
-     json_string(&b, hidden_path) != 0 ||
-     json_appendf(&b, ",\"restored\":%s,\"alreadyVisible\":%s,"
-                  "\"scanRequested\":%s}",
-                  restored ? "true" : "false",
-                  already_visible ? "true" : "false",
-                  restored ? "true" : "false") != 0) {
     free(b.data);
     return -1;
   }
@@ -8433,8 +8010,6 @@ job_speed_metric_bytes(const char *verb, const char *phase, long copied,
     source = "unpacked-output";
 	  } else if(!strcmp(v, "read-speed-test")) {
 	    source = "read-test";
-  } else if(!strcmp(v, "read-eof-test")) {
-    source = "read-eof";
 	  } else if(!strcmp(v, "move-to-usb") ||
             !strcmp(v, "move-to-internal") ||
             !strcmp(v, "copy-to-usb") ||
@@ -8899,11 +8474,5 @@ gc_api_request(const http_request_t *req, const char *url) {
 	  if(!strcmp(req->path, "/api/gc/read-speed-test")) {
 	    return enqueue_read_speed_test_action(req);
 	  }
-  if(!strcmp(req->path, "/api/gc/read-eof-test")) {
-    return enqueue_read_eof_test_action(req);
-  }
-  if(!strcmp(req->path, "/api/gc/original-restore")) {
-    return original_restore_request(req);
-  }
 	  return serve_error(req, 404, "not found");
 	}

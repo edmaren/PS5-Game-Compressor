@@ -1617,7 +1617,7 @@
         <div class="modal-title" id="format-title">Compression Format</div>
         <button class="icon-btn" id="format-close" aria-label="Close"></button>
       </div>
-      <div class="modal-body" id="format-body">
+      <div class="modal-body">
         <div class="format-section-title">Format</div>
         <div class="format-grid">
           <button class="format-row is-default-choice" type="button" data-compress-format="exfat">
@@ -1662,7 +1662,7 @@
             </div>
             <span class="chip">Select</span>
           </button>
-          <button class="format-row" type="button" data-compress-policy="stream" id="format-stream-row">
+          <button class="format-row" type="button" data-compress-policy="stream">
             <div>
               <div class="history-title">Destructive</div>
               <div class="history-meta" id="format-stream-space">Deletes while writing to use less free space</div>
@@ -1728,7 +1728,7 @@
         <div class="modal-title" id="uncompress-title">Uncompress</div>
         <button class="icon-btn" id="uncompress-close" aria-label="Close"></button>
       </div>
-      <div class="modal-body" id="uncompress-body">
+      <div class="modal-body">
         <div class="format-section-title">Output</div>
         <div class="format-grid">
           <button class="format-row is-default-choice" type="button" data-uncompress-mode="image">
@@ -2459,10 +2459,6 @@
       return null;
     }
 
-    function mountNoticeChip(g) {
-      return '';
-    }
-
     function completedBadBlocksForGame(g) {
       const op = latestBadBlocksOperationForGame(g, true);
       if (!op) return null;
@@ -3117,15 +3113,11 @@
       if (state.secondaryMenuFor !== gameInstanceId(g)) return '';
       return '<div class="secondary-menu" id="secondary-menu" role="menu" style="visibility:hidden">' +
         actions.map((action) => (
-          '<button class="menu-action' + (action.danger ? ' is-danger' : '') + '" role="menuitem" data-secondary-action="' + escapeHtml(action.id) + '" data-menu-label="' + escapeHtml(action.label) + '">' +
+          '<button class="menu-action' + (action.danger ? ' is-danger' : '') + '" role="menuitem" data-secondary-action="' + escapeHtml(action.id) + '">' +
           escapeHtml(action.label) +
           '</button>'
         )).join('') +
         '</div>';
-    }
-
-    function renderSecondaryMenu(g, actions) {
-      return '';
     }
 
     function refreshSecondaryMenuLayer(g) {
@@ -3198,7 +3190,6 @@
         '<button class="more-btn" id="more-actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="' + expanded + '">' +
         '<span class="more-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
         '</button>' +
-        renderSecondaryMenu(g, actions) +
         '</div>';
     }
 
@@ -3430,7 +3421,6 @@
         detailStatusChip(g) +
         sizeChip(g) +
         savedChip(g) +
-        mountNoticeChip(g) +
         badBlocksChip(g) +
         repairedBlocksChip(g) +
         '</div>' +

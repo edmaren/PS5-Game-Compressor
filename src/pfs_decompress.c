@@ -138,11 +138,11 @@ typedef struct pfsc_decode_pool {
   int error;
 } pfsc_decode_pool_t;
 
-typedef enum pfsc_decomp_phase {
+enum pfsc_decomp_phase {
   PFSC_DECOMP_PHASE_IDLE = 0,
   PFSC_DECOMP_PHASE_READ,
   PFSC_DECOMP_PHASE_WRITE,
-} pfsc_decomp_phase_t;
+};
 
 typedef enum pfsc_decomp_task_type {
   PFSC_DECOMP_TASK_READ = 1,
