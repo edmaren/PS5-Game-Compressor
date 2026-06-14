@@ -58,7 +58,7 @@
 
     .app {
       display: grid;
-      grid-template-columns: minmax(280px, 360px) 1fr;
+      grid-template-columns: 40vw minmax(0, 1fr);
       height: 100%;
       min-height: 0;
       padding: 18px;
@@ -127,11 +127,12 @@
 
     .game-row {
       display: grid;
-      grid-template-columns: 54px 1fr auto;
+      grid-template-columns: 54px minmax(0, 1fr);
       gap: 12px;
       align-items: center;
+      position: relative;
       width: 100%;
-      min-height: 78px;
+      min-height: 86px;
       padding: 12px;
       border-radius: 22px;
       cursor: pointer;
@@ -195,6 +196,10 @@
       display: block;
     }
 
+    .row-main {
+      min-width: 0;
+    }
+
     .row-title {
       min-width: 0;
       font-size: 15px;
@@ -208,6 +213,10 @@
       margin-top: 3px;
       color: var(--muted);
       font-size: 12px;
+    }
+
+    .row-storage {
+      display: block;
     }
 
     .chip {
@@ -225,6 +234,17 @@
       font-variant-numeric: tabular-nums;
       font-feature-settings: "tnum" 1;
       white-space: nowrap;
+    }
+
+    .game-row>.chip {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      height: 22px;
+      max-width: calc(100% - 24px);
+      padding: 0 8px;
+      font-size: 10px;
+      justify-self: end;
     }
 
     .chip.metric {
@@ -311,10 +331,17 @@
     }
 
     .chip.size-pending {
-      gap: 6px;
+      min-width: 96px;
+      gap: 0;
       color: #386176;
       border-color: rgba(56, 97, 118, .18);
       background: #edf7fa;
+    }
+
+    .measure-dots {
+      display: inline-block;
+      width: 18px;
+      text-align: left;
     }
 
     button.chip {
@@ -324,22 +351,6 @@
 
     button.chip:hover {
       filter: brightness(.98);
-    }
-
-    .mini-spinner {
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      border: 2px solid rgba(56, 97, 118, .22);
-      border-top-color: #386176;
-      animation: spin .85s linear infinite;
-      flex: 0 0 auto;
-    }
-
-    @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
     }
 
     .content {
@@ -921,6 +932,89 @@
       text-align: center;
     }
 
+    .loading-state {
+      width: 100%;
+      display: grid;
+      justify-items: center;
+      align-content: center;
+      gap: 12px;
+      padding: 22px 14px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .loading-state.is-list {
+      min-height: 160px;
+    }
+
+    .loading-state.is-detail {
+      width: min(520px, 100%);
+    }
+
+    .loading-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 58px;
+      height: 28px;
+      border-radius: 999px;
+      border: 1px solid rgba(19, 102, 255, .18);
+      background: #eaf2ff;
+      color: var(--accent);
+    }
+
+    .loading-dots {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .loading-dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: .42;
+      animation: loading-dot 1.2s ease-in-out infinite;
+    }
+
+    .loading-dots span:nth-child(2) {
+      animation-delay: .18s;
+      opacity: .66;
+    }
+
+    .loading-dots span:nth-child(3) {
+      animation-delay: .36s;
+      opacity: .9;
+    }
+
+    .loading-title {
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 720;
+      line-height: 1.25;
+    }
+
+    .loading-subtitle {
+      margin-top: 5px;
+      max-width: 280px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    @keyframes loading-dot {
+
+      0%,
+      100% {
+        opacity: .35;
+      }
+
+      50% {
+        opacity: 1;
+      }
+    }
+
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -1278,6 +1372,18 @@
       }
     }
 
+    @media (min-width: 1400px) {
+      .app {
+        grid-template-columns: 560px minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 820px) and (min-width: 761px) {
+      .app {
+        grid-template-columns: 320px minmax(0, 1fr);
+      }
+    }
+
     @media (max-width: 760px) {
 
       html,
@@ -1321,7 +1427,7 @@
       }
 
       .game-row {
-        grid-template-columns: 54px minmax(0, 1fr) auto;
+        grid-template-columns: 54px minmax(0, 1fr);
       }
 
       .content {
@@ -1429,9 +1535,19 @@
     <aside class="sidebar">
       <div class="sidebar-head">
         <h1>Game Compressor</h1>
-        <div class="sidebar-meta" id="count-label">0 games</div>
+        <div class="sidebar-meta" id="count-label">Scanning games</div>
       </div>
-      <div class="game-list" id="game-list"></div>
+      <div class="game-list" id="game-list">
+        <div class="loading-state is-list" role="status" aria-live="polite">
+          <div class="loading-pill" aria-hidden="true">
+            <span class="loading-dots"><span></span><span></span><span></span></span>
+          </div>
+          <div>
+            <div class="loading-title">Scanning games</div>
+            <div class="loading-subtitle">Looking for installed and compressed game entries.</div>
+          </div>
+        </div>
+      </div>
     </aside>
 
     <main class="content">
@@ -1439,7 +1555,17 @@
         <div class="free-space-label" id="free-space-label">Free Space <span>--</span></div>
         <button class="icon-btn" id="history-top" title="History" aria-label="History"></button>
       </div>
-      <section class="detail" id="detail"></section>
+      <section class="detail" id="detail">
+        <div class="loading-state is-detail" role="status" aria-live="polite">
+          <div class="loading-pill" aria-hidden="true">
+            <span class="loading-dots"><span></span><span></span><span></span></span>
+          </div>
+          <div>
+            <div class="loading-title">Scanning games</div>
+            <div class="loading-subtitle">This can take a moment on PS5 storage.</div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -1702,6 +1828,9 @@
 
     const state = {
       games: [],
+      gamesLoading: true,
+      gamesLoaded: false,
+      gamesError: '',
       history: [],
       usb: [],
       job: null,
@@ -1755,6 +1884,8 @@
     let pollBurstTimer = 0;
     let pollBurstUntil = 0;
     let cancelingActiveId = '';
+    let measureDotsTimer = 0;
+    let measureDotsStep = 0;
 
     const $ = (id) => document.getElementById(id);
 
@@ -2277,7 +2408,8 @@
 
     function sizeChip(g) {
       if (g && g.sizePending) {
-        return '<span class="chip size-pending"><span class="mini-spinner" aria-hidden="true"></span>measuring</span>';
+        return '<span class="chip size-pending">measuring' +
+          '<span class="measure-dots" data-measure-dots aria-hidden="true">...</span></span>';
       }
       const stats = compressionStatsForGame(g);
       const size = stats && Number(stats.compressedSize || 0) > 0
@@ -2596,7 +2728,13 @@
     }
 
     function listKey() {
-      return state.selected + '::' + state.games.map(gameKey).join('||');
+      return [
+        state.selected,
+        state.gamesLoading,
+        state.gamesLoaded,
+        state.gamesError,
+        state.games.map(gameKey).join('||')
+      ].map(keyPart).join('::');
     }
 
     function headerFreeSpaceGame(selected) {
@@ -2624,7 +2762,14 @@
 
     function detailKey() {
       const g = selectedGame();
-      if (!g) return 'empty';
+      if (!g) {
+        return [
+          'empty',
+          state.gamesLoading,
+          state.gamesLoaded,
+          state.gamesError
+        ].map(keyPart).join('|');
+      }
       return [
         gameKey(g), actionFor(g), actionLabel(g),
         compressionResultKeyForGame(g),
@@ -2675,9 +2820,19 @@
       const key = listKey();
       if (!force && state.renderKeys.list === key) return;
       state.renderKeys.list = key;
+      const list = $('game-list');
+      if (!state.games.length && state.gamesLoading) {
+        $('count-label').textContent = 'Scanning games';
+        list.innerHTML = gamesLoadingMarkup(false);
+        return;
+      }
+      if (!state.games.length && state.gamesError) {
+        $('count-label').textContent = 'Scan failed';
+        list.innerHTML = '<div class="empty">' + escapeHtml(state.gamesError) + '</div>';
+        return;
+      }
       $('count-label').textContent = state.games.length +
         (state.games.length === 1 ? ' game' : ' games');
-      const list = $('game-list');
       if (!state.games.length) {
         list.innerHTML = '<div class="empty">No games found</div>';
         return;
@@ -2688,8 +2843,9 @@
         (g.isMounted === false ? 'is-unmounted' : '') +
         '" data-id="' + escapeHtml(gameInstanceId(g)) + '">' +
         '<div class="thumb">' + gameIcon(g, false) + '</div>' +
-        '<div><div class="row-title">' + escapeHtml(g.name || g.titleId) + '</div>' +
-        '<div class="row-sub">' + escapeHtml(g.titleId + ' - ' + (g.storage || 'storage')) + '</div></div>' +
+        '<div class="row-main"><div class="row-title">' + escapeHtml(g.name || g.titleId) + '</div>' +
+        '<div class="row-sub"><span>' + escapeHtml(g.titleId + ' -') + '</span>' +
+        '<span class="row-storage">' + escapeHtml(g.storage || 'storage') + '</span></div></div>' +
         statusChip(g) +
         '</button>'
       )).join('');
@@ -2710,6 +2866,20 @@
           }
         }
       }
+    }
+
+    function gamesLoadingMarkup(detail) {
+      return '<div class="loading-state ' + (detail ? 'is-detail' : 'is-list') +
+        '" role="status" aria-live="polite">' +
+        '<div class="loading-pill" aria-hidden="true">' +
+        '<span class="loading-dots"><span></span><span></span><span></span></span>' +
+        '</div>' +
+        '<div><div class="loading-title">Scanning games</div>' +
+        '<div class="loading-subtitle">' +
+        (detail ? 'This can take a moment on PS5 storage.' :
+          'Looking for installed and compressed game entries.') +
+        '</div></div>' +
+        '</div>';
     }
 
     function escapeHtml(s) {
@@ -3186,6 +3356,14 @@
       const g = selectedGame();
       const detail = $('detail');
       if (!g) {
+        if (state.gamesLoading) {
+          detail.innerHTML = gamesLoadingMarkup(true);
+          return;
+        }
+        if (state.gamesError) {
+          detail.innerHTML = '<div class="empty">' + escapeHtml(state.gamesError) + '</div>';
+          return;
+        }
         detail.innerHTML = '<div class="empty">No games found</div>';
         return;
       }
@@ -3296,6 +3474,38 @@
       renderList(force);
       renderDetail(force);
       renderHistory(force);
+      syncMeasuringDots();
+    }
+
+    function updateMeasuringDots() {
+      const dots = document.querySelectorAll('[data-measure-dots]');
+      if (!dots.length) {
+        if (measureDotsTimer) {
+          clearInterval(measureDotsTimer);
+          measureDotsTimer = 0;
+        }
+        return;
+      }
+      const text = '.'.repeat((measureDotsStep % 3) + 1);
+      measureDotsStep = (measureDotsStep + 1) % 3;
+      dots.forEach((dot) => {
+        dot.textContent = text;
+      });
+    }
+
+    function syncMeasuringDots() {
+      if (!document.querySelector('[data-measure-dots]')) {
+        if (measureDotsTimer) {
+          clearInterval(measureDotsTimer);
+          measureDotsTimer = 0;
+        }
+        return;
+      }
+      if (!measureDotsTimer) {
+        measureDotsStep = 0;
+        updateMeasuringDots();
+        measureDotsTimer = setInterval(updateMeasuringDots, 500);
+      }
     }
 
     function activeGameForJob() {
@@ -3388,12 +3598,21 @@
     async function refreshAll() {
       if (refreshAllInFlight) return;
       refreshAllInFlight = true;
+      if (!state.gamesLoaded && !state.games.length) {
+        state.gamesLoading = true;
+        state.gamesError = '';
+        renderList(true);
+        renderDetail(true);
+      }
       try {
         const [games, history] = await Promise.all([
           api('/api/gc/games'),
           api('/api/gc/history')
         ]);
-        state.games = sortGamesForList(games.games);
+        state.gamesLoading = false;
+        state.gamesLoaded = true;
+        state.gamesError = '';
+        state.games = sortGamesForList(games.games || []);
         state.history = history.history || [];
         if (!state.selected && state.games[0]) {
           selectGame(gameInstanceId(state.games[0]), false, false);
@@ -3409,11 +3628,16 @@
         render();
         updateProgressOnly();
       } catch (err) {
+        state.gamesLoading = false;
+        state.gamesLoaded = true;
+        state.gamesError = err.message || 'Could not scan games';
         state.renderKeys.header = '';
         state.renderKeys.list = '';
         state.renderKeys.detail = '';
         state.renderKeys.history = '';
-        $('detail').innerHTML = '<div class="empty">' + escapeHtml(err.message) + '</div>';
+        renderList(true);
+        renderDetail(true);
+        renderHistory(true);
       } finally {
         refreshAllInFlight = false;
       }

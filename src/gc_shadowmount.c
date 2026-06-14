@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <sys/user.h>
 #include <unistd.h>
 
@@ -829,10 +830,29 @@ gc_shadowmount_remove_outer_sector_hint(const char *outer_path,
   return remove_sector_hint(outer_path, err, err_size);
 }
 
+static int
+manual_list_needs_separator(int fd, int *needs_separator) {
+  struct stat st;
+  char ch;
+
+  if(!needs_separator) {
+    errno = EINVAL;
+    return -1;
+  }
+  *needs_separator = 0;
+  if(fstat(fd, &st) != 0) return -1;
+  if(st.st_size <= 0) return 0;
+  if(lseek(fd, st.st_size - 1, SEEK_SET) < 0) return -1;
+  if(read(fd, &ch, 1) != 1) return -1;
+  *needs_separator = ch != '\n';
+  return lseek(fd, 0, SEEK_END) < 0 ? -1 : 0;
+}
+
 int
 gc_shadowmount_request_source_scan(const char *source_path,
                                    char *err, size_t err_size) {
   int fd;
+  int needs_separator;
   size_t len;
   if(err && err_size) err[0] = 0;
   if(!source_path || source_path[0] != '/') {
@@ -843,13 +863,19 @@ gc_shadowmount_request_source_scan(const char *source_path,
     set_errno_err(err, err_size, "create /data/shadowmount");
     return -1;
   }
-  fd = open(SHADOWMOUNT_MANUAL_LIST, O_WRONLY | O_CREAT | O_APPEND, 0666);
+  fd = open(SHADOWMOUNT_MANUAL_LIST, O_RDWR | O_CREAT | O_APPEND, 0666);
   if(fd < 0) {
     set_errno_err(err, err_size, "open ShadowMount manual.lst");
     return -1;
   }
+  if(manual_list_needs_separator(fd, &needs_separator) != 0) {
+    set_errno_err(err, err_size, "inspect ShadowMount manual.lst");
+    close(fd);
+    return -1;
+  }
   len = strlen(source_path);
-  if(write(fd, source_path, len) != (ssize_t)len ||
+  if((needs_separator && write(fd, "\n", 1) != 1) ||
+     write(fd, source_path, len) != (ssize_t)len ||
      write(fd, "\n", 1) != 1) {
     set_errno_err(err, err_size, "append ShadowMount manual source");
     close(fd);
