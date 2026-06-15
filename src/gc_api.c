@@ -7228,26 +7228,16 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
      action == GC_ACTION_VALIDATE_ONLY ||
      action == GC_ACTION_REFRESH_MOUNT) {
     snprintf(delete_policy, sizeof(delete_policy), "%s", "none");
-  } else if(action == GC_ACTION_COMPRESS && target_root[0]) {
-    snprintf(delete_policy, sizeof(delete_policy), "%s",
-             !strcmp(requested_delete_policy, "keep") ? "keep" : "after");
-  } else {
-    if(action == GC_ACTION_COMPRESS &&
-       requested_delete_policy[0] &&
-       !strcmp(requested_delete_policy, "keep")) {
-      if(preserve_original[0]) {
-        snprintf(delete_policy, sizeof(delete_policy), "%s", "keep");
-      } else {
-        return serve_error(req, 400,
-                           "keep both is only available when moving to another storage");
-      }
-    }
-    if(action == GC_ACTION_COMPRESS &&
-       requested_delete_policy[0] &&
-       !strcmp(requested_delete_policy, "stream")) {
-      snprintf(delete_policy, sizeof(delete_policy), "%s", "stream");
-    } else if(requested_delete_policy[0] &&
-              !strcmp(requested_delete_policy, "keep")) {
+	  } else if(action == GC_ACTION_COMPRESS && target_root[0]) {
+	    snprintf(delete_policy, sizeof(delete_policy), "%s",
+	             !strcmp(requested_delete_policy, "keep") ? "keep" : "after");
+	  } else {
+	    if(action == GC_ACTION_COMPRESS &&
+	       requested_delete_policy[0] &&
+	       !strcmp(requested_delete_policy, "stream")) {
+	      snprintf(delete_policy, sizeof(delete_policy), "%s", "stream");
+	    } else if(requested_delete_policy[0] &&
+	              !strcmp(requested_delete_policy, "keep")) {
       snprintf(delete_policy, sizeof(delete_policy), "%s", "keep");
     } else if(requested_delete_policy[0] &&
               !strcmp(requested_delete_policy, "after")) {

@@ -453,8 +453,8 @@
 
     .info-launcher {
       position: fixed;
-      left: 18px;
-      bottom: 18px;
+      right: 25px;
+      bottom: 25px;
       z-index: 7;
     }
 
@@ -1531,7 +1531,7 @@
       }
 
       .info-launcher {
-        left: 14px;
+        right: 14px;
         bottom: 14px;
       }
 
@@ -1735,23 +1735,6 @@
             <span class="chip">Select</span>
           </button>
         </div>
-        <div class="format-section-title">Storage Mode</div>
-        <div class="format-grid">
-          <button class="format-row is-default-choice" type="button" data-compress-policy="after">
-            <div>
-              <div class="history-title">Safe</div>
-              <div class="history-meta" id="format-safe-space">Keeps the original until the new file is complete</div>
-            </div>
-            <span class="chip">Select</span>
-          </button>
-          <button class="format-row" type="button" data-compress-policy="stream">
-            <div>
-              <div class="history-title">Destructive</div>
-              <div class="history-meta" id="format-stream-space">Deletes while writing to use less free space</div>
-            </div>
-            <span class="chip">Select</span>
-          </button>
-        </div>
         <div class="format-section-title">Destination</div>
         <div class="format-grid">
           <button class="format-row is-default-choice" type="button" data-compress-destination="keep">
@@ -1780,8 +1763,15 @@
           <div class="usb-picker" id="compress-usb-picker"></div>
           <div class="compress-usb-meta" id="compress-usb-meta"></div>
         </div>
-        <div class="format-section-title is-hidden" id="compress-source-title">Original source</div>
-        <div class="format-grid is-hidden" id="compress-source-grid">
+        <div class="format-section-title" id="compress-source-title">Original source</div>
+        <div class="format-grid" id="compress-source-grid">
+          <button class="format-row" type="button" data-compress-source-policy="keep">
+            <div>
+              <div class="history-title">Keep both</div>
+              <div class="history-meta">Leave the original source in its current location</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
           <button class="format-row is-default-choice" type="button" data-compress-source-policy="after">
             <div>
               <div class="history-title">Delete after completion</div>
@@ -1789,10 +1779,20 @@
             </div>
             <span class="chip">Select</span>
           </button>
-          <button class="format-row" type="button" data-compress-source-policy="keep">
+        </div>
+        <div class="format-section-title">Storage Mode</div>
+        <div class="format-grid">
+          <button class="format-row is-default-choice" type="button" data-compress-policy="after">
             <div>
-              <div class="history-title">Keep both</div>
-              <div class="history-meta">Leave the original source in its current location</div>
+              <div class="history-title">Safe</div>
+              <div class="history-meta" id="format-safe-space">Keeps the original until the new file is complete</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+          <button class="format-row" type="button" data-compress-policy="stream">
+            <div>
+              <div class="history-title">Destructive</div>
+              <div class="history-meta" id="format-stream-space">Deletes while writing to use less free space</div>
             </div>
             <span class="chip">Select</span>
           </button>
@@ -1932,6 +1932,7 @@
       compressProfile: 'space',
       compressDeletePolicy: 'after',
       compressSourcePolicy: 'after',
+      compressSourcePolicyTouched: false,
       compressDestination: 'keep',
       compressUsbId: '',
       compressUsbLoading: false,
@@ -2206,23 +2207,25 @@
     function operationVisual(op, job) {
       const action = String((op && op.action) || (job && job.verb) || '').toLowerCase();
       const phase = String((job && job.phase) || (op && op.phase) || '').toLowerCase();
+      const opPhase = String((op && op.phase) || '').toLowerCase();
       const current = String((job && job.current) || '').toLowerCase();
       const validationAction = action === 'validate-repair' || action === 'validate-only';
+      const mountedValidationScan = current.indexOf('scanning mounted') !== -1;
       const repairBlocks = Number((job && job.repairBlocks) ||
         (op && (op.badBlocksFound || op.repairedBlocks)) || 0);
 
-	      if (jobCanceling(job)) {
-	        return { label: 'Canceling', className: 'closing' };
-	      }
-	      if (phase === 'resolving') {
-	        return { label: 'Resolving', className: 'finalizing' };
-	      }
-	      if (phase === 'measuring') {
-	        return { label: 'Measuring', className: 'scanning' };
-	      }
-	      if (phase === 'closing' || current.indexOf('closing') !== -1) {
-	        return { label: 'Closing', className: 'closing' };
-	      }
+      if (jobCanceling(job)) {
+        return { label: 'Canceling', className: 'closing' };
+      }
+      if (phase === 'resolving') {
+        return { label: 'Resolving', className: 'finalizing' };
+      }
+      if (phase === 'measuring') {
+        return { label: 'Measuring', className: 'scanning' };
+      }
+      if (phase === 'closing' || current.indexOf('closing') !== -1) {
+        return { label: 'Closing', className: 'closing' };
+      }
       if (action === 'refresh-mount') {
         if (phase === 'hiding' || current.indexOf('hiding other') !== -1) {
           return { label: 'Hiding other instances', className: 'mounting' };
@@ -2241,24 +2244,24 @@
       if (action === 'read-speed-test') {
         return { label: 'Testing Read Speed', className: 'reading' };
       }
-	      if (phase === 'mounting' ||
-	        current.indexOf('requesting shadowmount') !== -1 ||
-	        current.indexOf('waiting for shadowmount') !== -1 ||
-	        current.indexOf('waiting for remount') !== -1 ||
+      if (phase === 'mounting' ||
+        current.indexOf('requesting shadowmount') !== -1 ||
+        current.indexOf('waiting for shadowmount') !== -1 ||
+        current.indexOf('waiting for remount') !== -1 ||
         current.indexOf('remount') !== -1) {
         return { label: 'Mounting', className: 'mounting' };
       }
-	      if (current.indexOf('publishing') !== -1) {
-	        return { label: 'Publishing', className: 'moving' };
-	      }
-	      if (phase === 'preflight' ||
-	        current.indexOf('opening existing') !== -1 ||
-	        current.indexOf('building nested') !== -1) {
-	        return { label: 'Inspecting', className: 'finalizing' };
-	      }
-	      if (phase === 'metadata' || current.indexOf('finalizing') !== -1) {
-	        return { label: 'Finalizing', className: 'finalizing' };
-	      }
+      if (current.indexOf('publishing') !== -1) {
+        return { label: 'Publishing', className: 'moving' };
+      }
+      if (phase === 'preflight' ||
+        current.indexOf('opening existing') !== -1 ||
+        current.indexOf('building nested') !== -1) {
+        return { label: 'Inspecting', className: 'finalizing' };
+      }
+      if (phase === 'metadata' || current.indexOf('finalizing') !== -1) {
+        return { label: 'Finalizing', className: 'finalizing' };
+      }
       if (phase === 'restoring' || current.indexOf('restoring original') !== -1) {
         return { label: 'Restoring', className: 'unpacking' };
       }
@@ -2274,33 +2277,37 @@
       if (action === 'uncompress') {
         return { label: 'Unpacking', className: 'unpacking' };
       }
+      if ((action === 'compress' || validationAction) && mountedValidationScan) {
+        return { label: 'Validating', className: 'validating' };
+      }
       if (validationAction &&
         repairBlocks <= 0 &&
-        (phase === 'repairing' || current.indexOf('repairing') !== -1)) {
+        (phase === 'repairing' || opPhase === 'repairing' ||
+          current.indexOf('repairing') !== -1)) {
         return { label: 'Validating', className: 'validating' };
       }
       if (phase === 'repairing' ||
+        opPhase === 'repairing' ||
         current.indexOf('repairing') !== -1 ||
         current.indexOf('rebuilding repaired') !== -1) {
         return { label: 'Repacking', className: 'repacking' };
       }
-	      if (validationAction ||
-	        phase === 'opening' ||
-	        phase === 'finding-mounted-image' ||
-	        current.indexOf('validat') !== -1 ||
-	        current.indexOf('checking shadowmount') !== -1) {
-	        return { label: 'Validating', className: 'validating' };
-	      }
-	      if (phase === 'scanning' ||
-	        current.indexOf('scanning app folder') !== -1 ||
-	        current.indexOf('scheduling budgeted stream') !== -1 ||
-	        current.indexOf('scanning nested') !== -1 ||
-	        current.indexOf('scanning mounted') !== -1) {
-	        return { label: 'Scanning', className: 'scanning' };
-	      }
-	      if (action === 'compress') {
-	        return { label: 'Compressing', className: 'compressing' };
-	      }
+      if (validationAction ||
+        phase === 'opening' ||
+        phase === 'finding-mounted-image' ||
+        current.indexOf('validat') !== -1 ||
+        current.indexOf('checking shadowmount') !== -1) {
+        return { label: 'Validating', className: 'validating' };
+      }
+      if (phase === 'scanning' ||
+        current.indexOf('scanning app folder') !== -1 ||
+        current.indexOf('scheduling budgeted stream') !== -1 ||
+        current.indexOf('scanning nested') !== -1) {
+        return { label: 'Scanning', className: 'scanning' };
+      }
+      if (action === 'compress') {
+        return { label: 'Compressing', className: 'compressing' };
+      }
       return { label: 'Running', className: 'run' };
     }
 
@@ -2555,11 +2562,50 @@
 	      return true;
 	    }
 
+	    function activeOperationPhase(op) {
+	      const activeId = String((state.job && state.job.activeId) || '');
+	      if (!op || !activeId || String(op.id || '') !== activeId) return null;
+	      return {
+	        action: String(op.action || '').toLowerCase(),
+	        opPhase: String(op.phase || '').toLowerCase(),
+	        jobPhase: String((state.job && state.job.phase) || '').toLowerCase(),
+	        current: String((state.job && state.job.current) || '').toLowerCase()
+	      };
+	    }
+
+	    function operationOutputFollowStarted(op) {
+	      const phase = activeOperationPhase(op);
+	      if (!phase) return false;
+	      if (phase.action === 'compress') {
+	        return phase.opPhase === 'repairing' ||
+	          phase.opPhase === 'validating' ||
+	          phase.jobPhase === 'repairing' ||
+	          phase.jobPhase === 'validating' ||
+	          phase.current.indexOf('repair') !== -1 ||
+	          phase.current.indexOf('validat') !== -1 ||
+	          phase.current.indexOf('scanning mounted') !== -1;
+	      }
+	      if (phase.action === 'uncompress') {
+	        return phase.opPhase === 'mounting' ||
+	          phase.jobPhase === 'mounting' ||
+	          phase.current.indexOf('mount') !== -1 ||
+	          phase.current.indexOf('shadowmount') !== -1;
+	      }
+	      return false;
+	    }
+
+	    function shouldFollowOperationOutputFromSource(g, op) {
+	      return !!g && !!op &&
+	        !state.autoSelectedOutputs[op.id] &&
+	        gameIsOperationSource(g, op) &&
+	        operationOutputFollowStarted(op);
+	    }
+
 	    function reconcileSelectedGameAfterRefresh(previousSelection, previousTitleId) {
 	      const exact = state.games.find((g) => gameInstanceId(g) === state.selected);
 	      if (exact) {
-	        const op = latestStateChangingOperationForTitle(exact.titleId);
-	        if (op && !state.autoSelectedOutputs[op.id] && gameIsOperationSource(exact, op) &&
+	        const op = runningOperationForOutputPresentation();
+	        if (shouldFollowOperationOutputFromSource(exact, op) &&
 	          selectOperationOutput(op)) {
 	          return;
 	        }
@@ -2614,7 +2660,7 @@
 	      const op = latestStateChangingOperationForTitle(g.titleId);
 	      if (!op) return '';
 	      const status = String((op && op.status) || '').toLowerCase();
-	      const currentOutput = status === 'running';
+	      const currentOutput = status === 'running' && operationOutputFollowStarted(op);
 	      if (gameIsOperationOutput(g, op)) return currentOutput ? 'current output' : '';
 	      if (gameIsOperationSource(g, op)) return 'original source';
 	      return '';
@@ -2635,6 +2681,7 @@
 	    function applyOperationOutputPresentation() {
 	      const op = runningOperationForOutputPresentation();
 	      if (!op) return;
+	      if (!operationOutputFollowStarted(op)) return;
 	      const output = findGameByPath(op.outputPath);
 	      if (!output || gameIsOperationSource(output, op)) return;
 	      for (const game of state.games) {
@@ -4692,18 +4739,16 @@
     }
 
     function safeSpaceText(g) {
+      if (state.compressSourcePolicy === 'keep') {
+        return 'Not needed while keeping the original source';
+      }
       if (state.compressDestination === 'usb') {
         const usb = selectedCompressUsb();
-	        const retention = state.compressSourcePolicy === 'keep'
-	          ? 'keeps original source'
-	          : 'original is removed after verification';
-	        if (usb) return 'Writes to ' + usbTargetLabel(usb) + '; ' + retention;
-	        return 'Writes to selected storage; ' + retention;
-	      }
+        if (usb) return 'Writes to ' + usbTargetLabel(usb) + '; original is removed after verification';
+        return 'Writes to selected storage; original is removed after verification';
+      }
       if (state.compressDestination === 'internal') {
-        return state.compressSourcePolicy === 'keep'
-          ? 'Writes to Internal SSD; keeps original source'
-          : 'Writes to Internal SSD; original is removed after verification';
+        return 'Writes to Internal SSD; original is removed after verification';
       }
       if (!g || g.sizePending || !Number(g.requiredBytes || 0)) {
         return 'Keeps the original until verified; needs measured source-size free';
@@ -4716,6 +4761,9 @@
     }
 
     function destructiveSpaceText(g) {
+      if (state.compressSourcePolicy === 'keep') {
+        return 'Not available while keeping the original source';
+      }
       if (state.compressDestination === 'usb' ||
         state.compressDestination === 'internal') {
         return 'Not available when moving from one storage to another';
@@ -4730,46 +4778,55 @@
         : base;
     }
 
+    function defaultCompressSourcePolicyForDestination(destination) {
+      return destination === 'usb' || destination === 'internal' ? 'keep' : 'after';
+    }
+
+    function syncCompressSourcePolicyFromDestination() {
+      if (state.compressSourcePolicyTouched) return;
+      state.compressSourcePolicy =
+        defaultCompressSourcePolicyForDestination(state.compressDestination);
+    }
+
     function updateCompressModalSelection() {
       const g = state.compressGame;
       const sourceStorage = String((g && g.storage) || '').toLowerCase();
       const showInternal = sourceStorage !== 'internal';
       const showUsb = !storageIsExternal(sourceStorage);
+      const hideUsbDestination = !showUsb;
+      const usbDestinationUnavailable =
+        !state.compressUsbLoading && !state.usb.length;
       if (!showInternal && state.compressDestination === 'internal') {
         state.compressDestination = 'keep';
       }
-      if (!showUsb && state.compressDestination === 'usb') {
+      if ((hideUsbDestination || usbDestinationUnavailable) &&
+        state.compressDestination === 'usb') {
         state.compressDestination = 'keep';
       }
+      syncCompressSourcePolicyFromDestination();
       const effectiveMovingToUsb = state.compressDestination === 'usb';
       const effectiveMovingToInternal = state.compressDestination === 'internal';
-      const movingElsewhere = effectiveMovingToUsb || effectiveMovingToInternal;
       const destructiveUnavailable =
         effectiveMovingToUsb || effectiveMovingToInternal || !(g && g.canStreamDelete);
       if (destructiveUnavailable && state.compressDeletePolicy === 'stream') {
         state.compressDeletePolicy = 'after';
       }
-      if (!movingElsewhere) {
-        state.compressSourcePolicy = 'after';
-      }
-      if (!effectiveMovingToUsb) {
-        state.compressUsbOpen = false;
-      }
-      $('format-safe-space').textContent = safeSpaceText(g);
-      $('format-stream-space').textContent = destructiveSpaceText(g);
-      $('compress-usb-panel').classList.toggle('hidden', !effectiveMovingToUsb);
-      $('compress-source-title').classList.toggle('is-hidden', !movingElsewhere);
-      $('compress-source-grid').classList.toggle('is-hidden', !movingElsewhere);
-      renderCompressUsbSelect();
+	      if (!effectiveMovingToUsb) {
+	        state.compressUsbOpen = false;
+	      }
+	      $('format-safe-space').textContent = safeSpaceText(g);
+	      $('format-stream-space').textContent = destructiveSpaceText(g);
+	      $('compress-usb-panel').classList.toggle('hidden', !effectiveMovingToUsb);
+	      renderCompressUsbSelect();
       document.querySelectorAll('[data-compress-format], [data-compress-profile], [data-compress-policy], [data-compress-source-policy], [data-compress-destination]').forEach((button) => {
         const format = button.getAttribute('data-compress-format');
         const profile = button.getAttribute('data-compress-profile');
         const policy = button.getAttribute('data-compress-policy');
         const sourcePolicy = button.getAttribute('data-compress-source-policy');
-        const destination = button.getAttribute('data-compress-destination');
-        const hiddenDestination =
-          (destination === 'internal' && !showInternal) ||
-          (destination === 'usb' && !showUsb);
+	        const destination = button.getAttribute('data-compress-destination');
+	        const hiddenDestination =
+	          (destination === 'internal' && !showInternal) ||
+	          (destination === 'usb' && hideUsbDestination);
         const selected = format
           ? format === state.compressFormat
           : (profile
@@ -4779,18 +4836,22 @@
               : (sourcePolicy
                 ? sourcePolicy === state.compressSourcePolicy
                 : policy === state.compressDeletePolicy)));
+        const storageModeDisabled = !!policy && state.compressSourcePolicy === 'keep';
         const disabled = hiddenDestination ||
-          (policy === 'stream' && destructiveUnavailable) ||
-          (sourcePolicy && !movingElsewhere);
+          (destination === 'usb' && usbDestinationUnavailable) ||
+          storageModeDisabled ||
+          (policy === 'stream' && destructiveUnavailable);
         button.classList.toggle('is-hidden', hiddenDestination);
         button.disabled = disabled;
         button.classList.toggle('is-disabled', disabled);
         button.classList.toggle('is-selected', selected && !disabled);
         const chip = button.querySelector('.chip');
         if (chip) {
-          chip.textContent = disabled ? 'Unavailable' : (selected ? 'Selected' : 'Select');
+          chip.textContent = storageModeDisabled
+            ? 'Not needed'
+            : (disabled ? 'Unavailable' : (selected ? 'Selected' : 'Select'));
           chip.classList.toggle('run', selected && !disabled);
-          chip.classList.toggle('bad', disabled);
+          chip.classList.toggle('bad', disabled && !storageModeDisabled);
         }
       });
       $('format-start').disabled =
@@ -4803,6 +4864,7 @@
       state.compressProfile = 'space';
       state.compressDeletePolicy = 'after';
       state.compressSourcePolicy = 'after';
+      state.compressSourcePolicyTouched = false;
       state.compressDestination = 'keep';
       state.compressUsbId = '';
       state.compressUsbLoading = false;
@@ -4834,6 +4896,7 @@
       state.compressGame = null;
       state.compressDestination = 'keep';
       state.compressSourcePolicy = 'after';
+      state.compressSourcePolicyTouched = false;
       state.compressUsbId = '';
       state.compressUsbLoading = false;
       state.compressUsbOpen = false;
@@ -4883,9 +4946,9 @@
       const profile = state.compressProfile;
       const destination = state.compressDestination || 'keep';
       const movingElsewhere = destination === 'usb' || destination === 'internal';
-      const deletePolicy = movingElsewhere
-        ? (state.compressSourcePolicy === 'keep' ? 'keep' : 'after')
-        : state.compressDeletePolicy;
+      const deletePolicy = state.compressSourcePolicy === 'keep'
+        ? 'keep'
+        : (movingElsewhere ? 'after' : state.compressDeletePolicy);
       const usbId = destination === 'usb' ? state.compressUsbId : '';
       if (!g || !g.sourcePath) {
         updateCompressModalSelection();
@@ -5081,12 +5144,15 @@
         button.addEventListener('click', () => {
           if (button.disabled) return;
           state.compressSourcePolicy = button.getAttribute('data-compress-source-policy') || 'after';
+          state.compressSourcePolicyTouched = true;
           updateCompressModalSelection();
         });
       });
       document.querySelectorAll('[data-compress-destination]').forEach((button) => {
         button.addEventListener('click', () => {
+          if (button.disabled) return;
           state.compressDestination = button.getAttribute('data-compress-destination') || 'keep';
+          syncCompressSourcePolicyFromDestination();
           if (state.compressDestination === 'usb' && !state.compressUsbId && state.usb[0]) {
             state.compressUsbId = state.usb[0].id || '';
           }

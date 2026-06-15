@@ -1,5 +1,91 @@
 # Changelog
 
+## 1.0.0 - 2026-06-15
+
+Compared local `UIPolish` (`a906b2d`) against `main` / `v0.9.6`
+(`cb1a344`).
+
+Full release notes: [RELEASE_NOTES_1.0.0.md](RELEASE_NOTES_1.0.0.md).
+
+### Fixed
+
+- Fixed crashes and UI stalls caused by exact size scanning of large USB-hosted
+  folders during normal library refreshes.
+- Fixed operations against duplicate title IDs by requiring and propagating the
+  selected `sourcePath` through API requests and operation fallback rows.
+- Fixed ShadowMount remount/refresh handling for duplicate instances by clearing
+  stale links, requesting title-specific source scans, and restoring previous
+  links when refresh fails or is cancelled.
+- Fixed USB compression and uncompression throughput cases by allowing
+  simultaneous read/write work only when source and destination are confirmed to
+  be on different physical devices.
+- Fixed destructive and delete workflows so cancel buttons are disabled once
+  cancellation would leave data in an unsafe state.
+- Fixed cache and artifact state after compression, uncompression, move/copy,
+  delete, validation, repair, and failed cleanup paths.
+- Fixed history and active-job rendering after browser refreshes by reconciling
+  selected game instances against source paths and current output paths.
+- Fixed compressed-source cleanup for uncompress operations by quarantining the
+  source first and restoring it on failure where possible.
+- Fixed ShadowMount manual list growth by replacing existing entries for the
+  same title/source instead of appending duplicate scan lines.
+
+### Operational Improvements
+
+- Added a source-path-aware operation model so duplicate title IDs on internal,
+  external, USB, compressed, mounted, and current-output locations can be acted
+  on independently.
+- Added a persistent background size-estimate cache for folder-based games,
+  including queued, scanning, refreshing, cached, done, and failed states.
+- Added a size-priority API used by the selected game view so the selected
+  folder can be measured before lower-priority library entries.
+- Added storage-overlap policy detection for compression and decompression so
+  reads and writes can be pipelined when source and destination are on different
+  physical devices.
+- Added parallel folder scanning and windowed PFSC decompression paths with
+  serial fallbacks when worker startup, memory, or same-device I/O policy does
+  not allow pipelining.
+- Compression and decompression now use cancel-aware reads, writes, condition
+  waits, and worker accounting so long operations respond more predictably before
+  entering unsafe phases.
+- Added cancel-disable reporting for phases that cannot safely be interrupted,
+  including destructive stream compression after mutation begins and active data
+  deletion.
+- Added a Delete Game Data action with confirmation, source hiding, ShadowMount
+  rescan, cache invalidation, and startup cleanup for interrupted delete temp
+  paths.
+- Added ShadowMountPlus config/manual-list management for source-specific scans,
+  `pfsc_direct_game=1`, title-aware manual list replacement, and Payload Manager
+  fallback launch when a running ShadowMountPlus process cannot be restarted
+  directly.
+- Added scan and measurement progress metadata to jobs and history rows for
+  large folder scans and compression preflight work.
+- USB and external-storage workflows now preserve exact target roots in
+  operation history instead of only recording a generic device name.
+- Operation history now includes direction, output path, target root, saved
+  space, scan summaries, repair summaries, read-test metrics, preserved-original
+  paths, and compression profile details.
+- Compression stats markers can infer source size from known source roots when
+  exact operation metadata is not available, improving saved-space reporting for
+  existing compressed output.
+- Shared helpers now centralize JSON escaping, path/filesystem utilities, job
+  timing helpers, and PFS I/O policy logic.
+- The launcher startup path was simplified to use the current launcher API.
+- Dead and duplicated code was removed from API, web server, app installer,
+  diagnostic, miniz, compression, decompression, repair, and transfer helpers.
+
+### UI Enhancements
+
+- The web UI now shows explicit loading states while the game library is being
+  scanned instead of rendering an empty list/detail panel.
+- Added current-output and multiple-location presentation in the web UI so users
+  can distinguish the active result from other copies of the same title.
+- Game rows and detail headers now use smaller storage/source/location chips,
+  clearer USB target labels, and safer text wrapping for long paths and names.
+- Progress cards now distinguish resolving, measuring, scanning, publishing,
+  deleting, validating, mounting, compressing, uncompressing, reading, moving,
+  and finalizing phases.
+
 ## 0.9.6 - 2026-06-12
 
 Compared against `main` because this repository does not currently have a
