@@ -58,7 +58,7 @@
 
     .app {
       display: grid;
-      grid-template-columns: 40vw minmax(0, 1fr);
+      grid-template-columns: minmax(320px, min(40vw, 450px)) minmax(0, 1fr);
       height: 100%;
       min-height: 0;
       padding: 18px;
@@ -158,10 +158,14 @@
       opacity: .52;
     }
 
-    .game-row.is-unmounted:hover,
-    .game-row.is-unmounted.is-selected {
-      opacity: .72;
-    }
+	    .game-row.is-unmounted:hover,
+	    .game-row.is-unmounted.is-selected {
+	      opacity: .72;
+	    }
+
+	    .game-row.is-output {
+	      background: rgba(234, 242, 255, .52);
+	    }
 
     .thumb,
     .hero-icon {
@@ -214,9 +218,36 @@
       font-size: 12px;
     }
 
-    .row-storage {
-      display: block;
-    }
+	    .row-storage {
+	      display: block;
+	      text-transform: lowercase;
+	    }
+
+	    .row-tags {
+	      display: flex;
+	      flex-wrap: wrap;
+	      gap: 4px;
+	      margin-top: 7px;
+	      padding-right: 90px;
+	    }
+
+	    .row-tag {
+	      display: inline-flex;
+	      align-items: center;
+	      max-width: 100%;
+	      height: 18px;
+	      padding: 0 6px;
+	      border: 1px solid var(--line);
+	      border-radius: 999px;
+	      background: rgba(255, 255, 255, .62);
+	      color: var(--muted);
+	      font-size: 10px;
+	      font-weight: 560;
+	      white-space: nowrap;
+	      overflow: hidden;
+	      text-overflow: ellipsis;
+	      text-transform: lowercase;
+	    }
 
     .chip {
       display: inline-flex;
@@ -233,6 +264,7 @@
       font-variant-numeric: tabular-nums;
       font-feature-settings: "tnum" 1;
       white-space: nowrap;
+      text-transform: lowercase;
     }
 
     .game-row>.chip {
@@ -249,6 +281,11 @@
     .chip.metric {
       min-width: 78px;
       text-align: center;
+      text-transform: none;
+    }
+
+    .chip.size-estimate {
+      min-width: 72px;
     }
 
     .chip.ok {
@@ -293,11 +330,17 @@
       background: #e8f5fb;
     }
 
-    .chip.validating {
-      color: #0f766e;
-      border-color: rgba(15, 118, 110, .22);
-      background: #e7f7f4;
-    }
+	    .chip.validating {
+	      color: #0f766e;
+	      border-color: rgba(15, 118, 110, .22);
+	      background: #e7f7f4;
+	    }
+
+	    .chip.scanning {
+	      color: #386176;
+	      border-color: rgba(56, 97, 118, .22);
+	      background: #e9f4f8;
+	    }
 
     .chip.repacking {
       color: #8a5b0d;
@@ -659,20 +702,53 @@
       text-align: center;
     }
 
-    .progress-label {
-      font-size: 21px;
-      line-height: 1.08;
-      font-weight: 400;
-    }
+	    .progress-label {
+	      font-size: 21px;
+	      line-height: 1.08;
+	      font-weight: 400;
+	    }
+
+	    .progress-current {
+	      min-width: 0;
+	      color: var(--muted);
+	      font-size: 11px;
+	      font-weight: 500;
+	      line-height: 1.35;
+	      text-align: center;
+	      overflow-wrap: anywhere;
+	    }
+
+	    .progress-current {
+	      display: grid;
+	      gap: 2px;
+	      margin-top: -4px;
+	      overflow-wrap: normal;
+	    }
+
+	    .progress-direction,
+	    .progress-current-file {
+	      min-width: 0;
+	      white-space: nowrap;
+	      overflow: hidden;
+	      text-overflow: ellipsis;
+	    }
+
+	    .progress-direction {
+	      color: #4b5563;
+	    }
+
+	    .progress-current-file {
+	      color: var(--muted);
+	    }
 
     .progress-percent {
       display: inline-block;
-      width: auto;
+      min-width: 5ch;
       font-size: 16px;
       line-height: 1;
       font-weight: 400;
       color: #4b5563;
-      text-align: left;
+      text-align: right;
       font-variant-numeric: tabular-nums;
       font-feature-settings: "tnum" 1;
     }
@@ -752,9 +828,13 @@
       background: linear-gradient(90deg, #216b8f, #69b8d8);
     }
 
-    .progress-box.is-validating .progress-fill {
-      background: linear-gradient(90deg, #0f766e, #4fc3b5);
-    }
+	    .progress-box.is-validating .progress-fill {
+	      background: linear-gradient(90deg, #0f766e, #4fc3b5);
+	    }
+
+	    .progress-box.is-scanning .progress-fill {
+	      background: linear-gradient(90deg, #386176, #79b6cb);
+	    }
 
     .progress-box.is-repacking .progress-fill {
       background: linear-gradient(90deg, #b7791f, #f2c15f);
@@ -794,10 +874,17 @@
       line-height: 1.2;
     }
 
-    .pending-label {
-      min-width: 0;
-      overflow-wrap: anywhere;
-    }
+	    .pending-label {
+	      min-width: 0;
+	      overflow-wrap: anywhere;
+	    }
+
+	    .pending-meta {
+	      margin-top: 4px;
+	      color: var(--muted);
+	      font-size: 11px;
+	      font-weight: 500;
+	    }
 
     .small-action {
       height: 40px;
@@ -1369,7 +1456,7 @@
 
     @media (min-width: 1400px) {
       .app {
-        grid-template-columns: 560px minmax(0, 1fr);
+        grid-template-columns: 450px minmax(0, 1fr);
       }
     }
 
@@ -1684,7 +1771,7 @@
           <button class="format-row" type="button" data-compress-destination="usb">
             <div>
               <div class="history-title">External Storage</div>
-              <div class="history-meta">Write compressed file to selected storage</div>
+              <div class="history-meta">Write compressed file to the USB target below</div>
             </div>
             <span class="chip">Select</span>
           </button>
@@ -1760,7 +1847,7 @@
           <button class="format-row" type="button" data-uncompress-destination="usb" id="uncompress-usb-row">
             <div>
               <div class="history-title">External Storage</div>
-              <div class="history-meta">Write to selected storage</div>
+              <div class="history-meta">Write to the USB target below</div>
             </div>
             <span class="chip">Select</span>
           </button>
@@ -1864,12 +1951,13 @@
       secondaryMenuFor: '',
       iconCache: {},
       iconRequests: {},
-      iconFailures: {},
-      animatedIconKeys: {},
-      renderKeys: {
-        header: '',
-        list: '',
-        detail: '',
+	      iconFailures: {},
+	      animatedIconKeys: {},
+	      autoSelectedOutputs: {},
+	      renderKeys: {
+	        header: '',
+	        list: '',
+	        detail: '',
         history: ''
       }
     };
@@ -1877,6 +1965,9 @@
     let refreshJobInFlight = false;
     let pollBurstTimer = 0;
     let pollBurstUntil = 0;
+    let sizePollTimer = 0;
+    let sizePollUntil = 0;
+    const sizePriorityInFlight = {};
     let cancelingActiveId = '';
     let measureDotsTimer = 0;
     let measureDotsStep = 0;
@@ -1923,13 +2014,20 @@
       state.secondaryMenuFor = '';
       if (remember) rememberSelectedGame(instanceId);
       if (reveal) state.revealSelected = true;
+      prioritizeFolderSizeForSelection(instanceId);
     }
 
-    function restoreSelectedGame() {
-      const instanceId = cookieValue(SELECTED_GAME_COOKIE);
-      if (!instanceId) return;
-      selectGame(instanceId, false, true);
-    }
+	    function restoreSelectedGame() {
+	      const instanceId = cookieValue(SELECTED_GAME_COOKIE);
+	      if (!instanceId) return;
+	      selectGame(instanceId, false, true);
+	    }
+
+	    function titleIdFromSelection(selection) {
+	      const value = String(selection || '');
+	      const idx = value.indexOf(':');
+	      return idx >= 0 ? value.slice(0, idx) : value;
+	    }
 
     function icon(name) {
       const paths = {
@@ -1953,6 +2051,19 @@
         i++;
       }
       return (i === 0 ? n.toFixed(0) : n.toFixed(n >= 10 ? 1 : 2)) + ' ' + units[i];
+    }
+
+    function cardSize(bytes) {
+      const value = Number(bytes || 0);
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let n = value;
+      let i = 0;
+      while (n >= 1024 && i < units.length - 1) {
+        n /= 1024;
+        i++;
+      }
+      const precision = i === 0 ? 0 : i >= 3 ? 1 : n >= 10 ? 1 : 2;
+      return n.toFixed(precision).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1') + units[i];
     }
 
     function speedText(bytesPerSecond) {
@@ -1996,6 +2107,52 @@
         null;
     }
 
+    function gameForInstanceId(instanceId) {
+      return state.games.find((g) => gameInstanceId(g) === instanceId) || null;
+    }
+
+    function sizeStatus(g) {
+      return String((g && g.sizeStatus) || '').toLowerCase();
+    }
+
+    function sizeWorkActive(g) {
+      const status = sizeStatus(g);
+      return status === 'queued' || status === 'scanning' || status === 'refreshing';
+    }
+
+    function startSizePollBurst(durationMs) {
+      sizePollUntil = Date.now() + Math.max(5000, Number(durationMs || 15000));
+      if (sizePollTimer) clearInterval(sizePollTimer);
+      sizePollTimer = setInterval(() => {
+        if (Date.now() > sizePollUntil) {
+          clearInterval(sizePollTimer);
+          sizePollTimer = 0;
+          return;
+        }
+        refreshAll();
+      }, 1500);
+    }
+
+    async function prioritizeFolderSizeForSelection(instanceId) {
+      const g = gameForInstanceId(instanceId);
+      if (!g || g.sourceKind !== 'folder' || !g.sourcePath) return;
+      if (sizeStatus(g) === 'done' || sizeStatus(g) === 'failed') return;
+      const path = normalizedPath(g.sourcePath);
+      if (!path || sizePriorityInFlight[path]) return;
+      sizePriorityInFlight[path] = true;
+      try {
+        await api('/api/gc/size-priority?path=' + encodeURIComponent(g.sourcePath), {
+          method: 'POST'
+        });
+        startSizePollBurst(sizeWorkActive(g) ? 15000 : 8000);
+        await refreshAll();
+      } catch (err) {
+        /* Size priority is advisory; keep the selected game usable. */
+      } finally {
+        delete sizePriorityInFlight[path];
+      }
+    }
+
     function gameQuery(g) {
       let query = 'titleId=' + encodeURIComponent((g && g.titleId) || '');
       if (g && g.sourcePath) {
@@ -2008,10 +2165,16 @@
       return String((g && (g.name || g.titleId)) || '');
     }
 
-    function sortGamesForList(games) {
-      return (games || []).slice().sort((a, b) => {
-        const aHasIcon = !!(a && a.hasIcon);
-        const bHasIcon = !!(b && b.hasIcon);
+	    function sortGamesForList(games) {
+	      return (games || []).slice().sort((a, b) => {
+	        const aBusy = a && a.activeOp ? 2 : (a && a.pendingOp ? 1 : 0);
+	        const bBusy = b && b.activeOp ? 2 : (b && b.pendingOp ? 1 : 0);
+	        if (aBusy !== bBusy) return bBusy - aBusy;
+	        const aOutput = gameInstanceRole(a) === 'current output';
+	        const bOutput = gameInstanceRole(b) === 'current output';
+	        if (aOutput !== bOutput) return aOutput ? -1 : 1;
+	        const aHasIcon = !!(a && a.hasIcon);
+	        const bHasIcon = !!(b && b.hasIcon);
         if (aHasIcon !== bHasIcon) return aHasIcon ? -1 : 1;
         const byName = gameSortName(a).localeCompare(gameSortName(b), undefined, {
           numeric: true,
@@ -2048,12 +2211,18 @@
       const repairBlocks = Number((job && job.repairBlocks) ||
         (op && (op.badBlocksFound || op.repairedBlocks)) || 0);
 
-      if (jobCanceling(job)) {
-        return { label: 'Canceling', className: 'closing' };
-      }
-      if (phase === 'closing' || current.indexOf('closing') !== -1) {
-        return { label: 'Closing', className: 'closing' };
-      }
+	      if (jobCanceling(job)) {
+	        return { label: 'Canceling', className: 'closing' };
+	      }
+	      if (phase === 'resolving') {
+	        return { label: 'Resolving', className: 'finalizing' };
+	      }
+	      if (phase === 'measuring') {
+	        return { label: 'Measuring', className: 'scanning' };
+	      }
+	      if (phase === 'closing' || current.indexOf('closing') !== -1) {
+	        return { label: 'Closing', className: 'closing' };
+	      }
       if (action === 'refresh-mount') {
         if (phase === 'hiding' || current.indexOf('hiding other') !== -1) {
           return { label: 'Hiding other instances', className: 'mounting' };
@@ -2072,16 +2241,24 @@
       if (action === 'read-speed-test') {
         return { label: 'Testing Read Speed', className: 'reading' };
       }
-      if (phase === 'mounting' ||
-        current.indexOf('requesting shadowmount') !== -1 ||
-        current.indexOf('waiting for shadowmount') !== -1 ||
-        current.indexOf('waiting for remount') !== -1 ||
+	      if (phase === 'mounting' ||
+	        current.indexOf('requesting shadowmount') !== -1 ||
+	        current.indexOf('waiting for shadowmount') !== -1 ||
+	        current.indexOf('waiting for remount') !== -1 ||
         current.indexOf('remount') !== -1) {
         return { label: 'Mounting', className: 'mounting' };
       }
-      if (phase === 'metadata' || current.indexOf('finalizing') !== -1) {
-        return { label: 'Finalizing', className: 'finalizing' };
-      }
+	      if (current.indexOf('publishing') !== -1) {
+	        return { label: 'Publishing', className: 'moving' };
+	      }
+	      if (phase === 'preflight' ||
+	        current.indexOf('opening existing') !== -1 ||
+	        current.indexOf('building nested') !== -1) {
+	        return { label: 'Inspecting', className: 'finalizing' };
+	      }
+	      if (phase === 'metadata' || current.indexOf('finalizing') !== -1) {
+	        return { label: 'Finalizing', className: 'finalizing' };
+	      }
       if (phase === 'restoring' || current.indexOf('restoring original') !== -1) {
         return { label: 'Restoring', className: 'unpacking' };
       }
@@ -2107,18 +2284,23 @@
         current.indexOf('rebuilding repaired') !== -1) {
         return { label: 'Repacking', className: 'repacking' };
       }
-      if (validationAction ||
-        phase === 'scanning' ||
-        phase === 'opening' ||
-        phase === 'finding-mounted-image' ||
-        current.indexOf('validat') !== -1 ||
-        current.indexOf('scanning mounted') !== -1 ||
-        current.indexOf('checking shadowmount') !== -1) {
-        return { label: 'Validating', className: 'validating' };
-      }
-      if (action === 'compress') {
-        return { label: 'Compressing', className: 'compressing' };
-      }
+	      if (validationAction ||
+	        phase === 'opening' ||
+	        phase === 'finding-mounted-image' ||
+	        current.indexOf('validat') !== -1 ||
+	        current.indexOf('checking shadowmount') !== -1) {
+	        return { label: 'Validating', className: 'validating' };
+	      }
+	      if (phase === 'scanning' ||
+	        current.indexOf('scanning app folder') !== -1 ||
+	        current.indexOf('scheduling budgeted stream') !== -1 ||
+	        current.indexOf('scanning nested') !== -1 ||
+	        current.indexOf('scanning mounted') !== -1) {
+	        return { label: 'Scanning', className: 'scanning' };
+	      }
+	      if (action === 'compress') {
+	        return { label: 'Compressing', className: 'compressing' };
+	      }
       return { label: 'Running', className: 'run' };
     }
 
@@ -2141,26 +2323,24 @@
       const total = Number(job.totalBytes || 0);
       const copied = Number(job.copiedBytes || 0);
       if (total > 0 && (
-        phase === 'copying' ||
-        phase === 'unpacking' ||
-        phase === 'moving' ||
-        phase === 'restoring' ||
-        phase === 'scanning')) {
-        return {
-          done: Math.max(0, Math.min(total, copied)),
-          total,
+	        phase === 'copying' ||
+	        phase === 'unpacking' ||
+	        phase === 'moving' ||
+	        phase === 'restoring')) {
+	        return {
+	          done: Math.max(0, Math.min(total, copied)),
+	          total,
           countable: true
         };
       }
       const count = Number(job.phaseCount || 0);
       const step = Number(job.phaseStep || 0);
       if (count > 0 && (
-        phase === 'copying' ||
-        phase === 'unpacking' ||
-        phase === 'moving' ||
-        phase === 'restoring' ||
-        phase === 'scanning' ||
-        phase === 'read-test')) {
+	        phase === 'copying' ||
+	        phase === 'unpacking' ||
+	        phase === 'moving' ||
+	        phase === 'restoring' ||
+	        phase === 'read-test')) {
         return {
           done: Math.max(0, Math.min(count, step)),
           total: count,
@@ -2192,7 +2372,7 @@
       if (g.activeOp) {
         const visual = operationVisual(g.activeOp, jobForOperation(g.activeOp));
         return '<span class="chip ' + visual.className + '" data-active-op-chip="' +
-          escapeHtml(gameInstanceId(g)) + '">' + escapeHtml(visual.label) + '</span>';
+          escapeHtml(gameInstanceId(g)) + '">' + escapeHtml(smallLabel(visual.label)) + '</span>';
       }
       if (g.pendingOp) {
         return '<span class="chip warn">' +
@@ -2230,21 +2410,46 @@
       return '';
     }
 
-    function storageChip(g) {
-      const storage = String((g && g.storage) || '').toLowerCase();
-      if (!storage) return '';
-      return '<span class="chip">' + escapeHtml(storage) + '</span>';
-    }
+	    function storageChip(g) {
+	      const storage = storageLabelForGame(g);
+	      if (!storage) return '';
+	      return '<span class="chip">' + escapeHtml(smallLabel(storage)) + '</span>';
+	    }
+
+	    function instanceRoleChip(g) {
+	      const role = gameInstanceRole(g);
+	      if (!role) return '';
+	      return '<span class="chip ' + (role === 'current output' ? 'run' : '') + '">' +
+	        escapeHtml(smallLabel(role)) + '</span>';
+	    }
+
+	    function locationCountChip(g) {
+	      const count = titleInstanceCount(g);
+	      if (count <= 1) return '';
+	      return '<span class="chip">' + escapeHtml(smallLabel(count + ' locations')) + '</span>';
+	    }
+
+	    function rowTagsHtml(g) {
+	      const tags = [];
+	      const role = gameInstanceRole(g);
+	      const count = titleInstanceCount(g);
+	      if (role) tags.push(role);
+	      if (count > 1) tags.push(count + ' locations');
+	      if (!tags.length) return '';
+	      return '<div class="row-tags">' + tags.map((tag) => (
+	        '<span class="row-tag">' + escapeHtml(smallLabel(tag)) + '</span>'
+	      )).join('') + '</div>';
+	    }
 
     function opCanRepairBlocks(op) {
       const action = String((op && op.action) || '').toLowerCase();
       return action === 'validate-repair' || action === 'compress';
     }
 
-    function opCanFindBadBlocks(op) {
-      const action = String((op && op.action) || '').toLowerCase();
-      return action === 'validate-repair' || action === 'validate-only';
-    }
+	    function opCanFindBadBlocks(op) {
+	      const action = String((op && op.action) || '').toLowerCase();
+	      return action === 'validate-repair' || action === 'validate-only' || action === 'compress';
+	    }
 
     function opCanShowCompressionStats(op) {
       const action = String((op && op.action) || '').toLowerCase();
@@ -2254,15 +2459,191 @@
         (Number(op.compressedSize || 0) > 0 || Number(op.savedBytes || 0) > 0);
     }
 
-    function normalizedPath(path) {
-      return String(path || '').replace(/\/+$/, '');
-    }
+	    function normalizedPath(path) {
+	      return String(path || '').replace(/\/+$/, '');
+	    }
 
-    function pathUnderRoot(path, root) {
-      const value = normalizedPath(path);
-      const prefix = normalizedPath(root);
-      return !!value && !!prefix && (value === prefix || value.indexOf(prefix + '/') === 0);
-    }
+	    function pathUnderRoot(path, root) {
+	      const value = normalizedPath(path);
+	      const prefix = normalizedPath(root);
+	      return !!value && !!prefix && (value === prefix || value.indexOf(prefix + '/') === 0);
+	    }
+
+	    function storageInfoForName(name) {
+	      const value = String(name || '').toLowerCase();
+	      if (value === 'internal') return { kind: 'internal', label: 'Internal SSD', root: '/data' };
+	      if (value === 'external') return { kind: 'external', label: 'External SSD', root: '/mnt/ext0' };
+	      if (value === 'm2') return { kind: 'm2', label: 'M.2 SSD', root: '/mnt/ext1' };
+	      if (value === 'usb') return { kind: 'usb', label: 'USB', root: '/mnt/usb' };
+	      return value ? { kind: value, label: value, root: '' } : { kind: '', label: '', root: '' };
+	    }
+
+	    function storageInfoForPath(path) {
+	      const value = normalizedPath(path);
+	      if (!value) return { kind: '', label: '', root: '' };
+	      if (pathUnderRoot(value, '/data')) return { kind: 'internal', label: 'Internal SSD', root: '/data' };
+	      if (pathUnderRoot(value, '/mnt/ext0')) return { kind: 'external', label: 'External SSD', root: '/mnt/ext0' };
+	      if (pathUnderRoot(value, '/mnt/ext1')) return { kind: 'm2', label: 'M.2 SSD', root: '/mnt/ext1' };
+	      for (let i = 0; i <= 7; i++) {
+	        const root = '/mnt/usb' + i;
+	        if (pathUnderRoot(value, root)) return { kind: 'usb' + i, label: 'USB ' + i, root };
+	      }
+	      return { kind: 'other', label: 'Other storage', root: '' };
+	    }
+
+	    function storageLabelForGame(g) {
+	      const fromPath = storageInfoForPath(g && g.sourcePath);
+	      if (fromPath.label) return fromPath.label;
+	      return storageInfoForName(g && g.storage).label || 'storage';
+	    }
+
+	    function storageLabelWithPath(path) {
+	      const info = storageInfoForPath(path);
+	      return info.label ? info.label : '';
+	    }
+
+	    function operationSourceLabel(op) {
+	      return storageLabelWithPath(op && op.sourcePath) || 'Source';
+	    }
+
+	    function operationTargetLabel(op) {
+	      return storageLabelWithPath((op && op.outputPath) || '') ||
+	        storageLabelWithPath((op && op.targetRoot) || '') ||
+	        operationSourceLabel(op);
+	    }
+
+	    function operationDirectionText(op) {
+	      if (!op) return '';
+	      const action = String(op.action || '').toLowerCase();
+	      if (!operationChangesGameState(op)) return '';
+	      const source = operationSourceLabel(op);
+	      const target = operationTargetLabel(op);
+	      if (!target || source === target) {
+	        if (action === 'compress') return source + ' compressed in place';
+	        if (action === 'uncompress') return source + ' unpacked in place';
+	        return source;
+	      }
+	      return source + ' -> ' + target;
+	    }
+
+	    function findGameByPath(path) {
+	      const target = normalizedPath(path);
+	      if (!target) return null;
+	      return state.games.find((g) => normalizedPath(g && g.sourcePath) === target) || null;
+	    }
+
+	    function operationTitleMatchesGame(op, g) {
+	      return !!op && !!g && String(op.titleId || '') === String(g.titleId || '');
+	    }
+
+	    function gameIsOperationSource(g, op) {
+	      return operationTitleMatchesGame(op, g) &&
+	        normalizedPath(g && g.sourcePath) === normalizedPath(op && op.sourcePath);
+	    }
+
+	    function gameIsOperationOutput(g, op) {
+	      return operationTitleMatchesGame(op, g) &&
+	        normalizedPath(g && g.sourcePath) === normalizedPath(op && op.outputPath);
+	    }
+
+	    function selectOperationOutput(op) {
+	      if (!op || !op.outputPath) return false;
+	      const output = findGameByPath(op.outputPath);
+	      if (!output) return false;
+	      selectGame(gameInstanceId(output), true, true);
+	      if (op.id) state.autoSelectedOutputs[op.id] = true;
+	      return true;
+	    }
+
+	    function reconcileSelectedGameAfterRefresh(previousSelection, previousTitleId) {
+	      const exact = state.games.find((g) => gameInstanceId(g) === state.selected);
+	      if (exact) {
+	        const op = latestStateChangingOperationForTitle(exact.titleId);
+	        if (op && !state.autoSelectedOutputs[op.id] && gameIsOperationSource(exact, op) &&
+	          selectOperationOutput(op)) {
+	          return;
+	        }
+	        return;
+	      }
+
+	      const targetTitle = previousTitleId || titleIdFromSelection(previousSelection);
+	      if (targetTitle) {
+	        const op = latestStateChangingOperationForTitle(targetTitle);
+	        if (op && selectOperationOutput(op)) return;
+	        const sameTitle = state.games.find((g) => String(g.titleId || '') === String(targetTitle));
+	        if (sameTitle) {
+	          selectGame(gameInstanceId(sameTitle), true, false);
+	          return;
+	        }
+	      }
+
+	      const legacy = state.games.find((g) => String(g.titleId || '') === String(state.selected || ''));
+	      if (legacy) {
+	        selectGame(gameInstanceId(legacy), true, false);
+	      } else if (state.games[0]) {
+	        selectGame(gameInstanceId(state.games[0]), true, false);
+	      }
+	    }
+
+	    function titleInstances(titleId) {
+	      const id = String(titleId || '');
+	      if (!id) return [];
+	      return state.games.filter((g) => String((g && g.titleId) || '') === id);
+	    }
+
+	    function titleInstanceCount(g) {
+	      return titleInstances(g && g.titleId).length;
+	    }
+
+	    function latestStateChangingOperationForTitle(titleId) {
+	      const id = String(titleId || '');
+	      if (!id || !Array.isArray(state.history)) return null;
+	      for (const op of state.history) {
+	        if (String((op && op.titleId) || '') !== id) continue;
+	        if (!operationChangesGameState(op)) continue;
+	        const status = String((op && op.status) || '').toLowerCase();
+	        if (status !== 'success' && status !== 'running') continue;
+	        if (!op.outputPath) continue;
+	        return op;
+	      }
+	      return null;
+	    }
+
+	    function gameInstanceRole(g) {
+	      if (!g) return '';
+	      const op = latestStateChangingOperationForTitle(g.titleId);
+	      if (!op) return '';
+	      const status = String((op && op.status) || '').toLowerCase();
+	      const currentOutput = status === 'running';
+	      if (gameIsOperationOutput(g, op)) return currentOutput ? 'current output' : '';
+	      if (gameIsOperationSource(g, op)) return 'original source';
+	      return '';
+	    }
+
+	    function runningOperationForOutputPresentation() {
+	      if (!Array.isArray(state.history)) return null;
+	      const activeId = String((state.job && state.job.activeId) || '');
+	      if (!activeId) return null;
+	      for (const op of state.history) {
+	        if (!op || String(op.status || '').toLowerCase() !== 'running') continue;
+	        if (String(op.id || '') !== activeId) continue;
+	        if (operationChangesGameState(op) && op.outputPath) return op;
+	      }
+	      return null;
+	    }
+
+	    function applyOperationOutputPresentation() {
+	      const op = runningOperationForOutputPresentation();
+	      if (!op) return;
+	      const output = findGameByPath(op.outputPath);
+	      if (!output || gameIsOperationSource(output, op)) return;
+	      for (const game of state.games) {
+	        if (game && game.activeOp && String(game.activeOp.id || '') === String(op.id || '')) {
+	          delete game.activeOp;
+	        }
+	      }
+	      output.activeOp = op;
+	    }
 
     function operationTime(op) {
       return Math.max(
@@ -2423,23 +2804,60 @@
       }) : null;
     }
 
-    function savedChip(g) {
-      const stats = compressionStatsForGame(g);
-      const saved = Number((stats && stats.savedBytes) || 0);
-      if (!g || saved <= 0) return '';
-      return '<span class="chip metric ok">saved ' + escapeHtml(shortSize(saved)) + '</span>';
-    }
+	    function savedChip(g) {
+	      const stats = compressionStatsForGame(g);
+	      const saved = Number((stats && stats.savedBytes) || 0);
+	      if (!g || saved <= 0) return '';
+	      return '<span class="chip metric ok">saved ' + escapeHtml(shortSize(saved)) + '</span>';
+	    }
+
+	    function exactFolderScanSize(g) {
+	      if (!g || g.sourceKind !== 'folder') return 0;
+	      const op = (g.activeOp && g.activeOp.sourcePath === g.sourcePath)
+	        ? g.activeOp
+	        : latestCompressionOperationForGame(g);
+	      if (!op || op.sourcePath !== g.sourcePath) return 0;
+	      return Math.max(0, Number(op.scanBytes || 0));
+	    }
 
     function sizeChip(g) {
-      if (g && g.sizePending) {
-        return '<span class="chip size-pending">measuring' +
-          '<span class="measure-dots" data-measure-dots aria-hidden="true">...</span></span>';
+      if (!g) return '';
+      if (g.sourceKind === 'folder') {
+        const status = sizeStatus(g);
+        const exactScanSize = exactFolderScanSize(g);
+        if (exactScanSize > 0) {
+          return '<span class="chip metric size-estimate" title="Measured folder size">' +
+            escapeHtml(cardSize(exactScanSize)) + '</span>';
+        }
+        const size = Number(g.sourceSize || 0);
+        if (size > 0) {
+          const title = status === 'refreshing'
+            ? 'Estimated folder size, checking for updates'
+            : status === 'cached'
+              ? 'Cached estimated folder size for display only'
+              : 'Folder size';
+          const label = (status === 'done' ? '' : '~') + cardSize(size);
+          const dots = status === 'refreshing'
+            ? '<span class="measure-dots" data-measure-dots aria-hidden="true">...</span>'
+            : '';
+          return '<span class="chip metric size-estimate" title="' + escapeHtml(title) + '">' +
+            escapeHtml(label) + dots + '</span>';
+        }
+        if (status === 'queued') {
+          return '<span class="chip size-pending">size queued</span>';
+        }
+        if (status === 'scanning' || status === 'refreshing') {
+          return '<span class="chip size-pending">scanning size' +
+            '<span class="measure-dots" data-measure-dots aria-hidden="true">...</span></span>';
+        }
+        return '';
       }
       const stats = compressionStatsForGame(g);
       const size = stats && Number(stats.compressedSize || 0) > 0
         ? Number(stats.compressedSize || 0)
         : Number(g && g.sourceSize || 0);
-      return '<span class="chip metric">' + shortSize(size) + '</span>';
+      if (size <= 0) return '';
+      return '<span class="chip metric size-estimate">' + cardSize(size) + '</span>';
     }
 
     function latestMountFailureForGame(g) {
@@ -2521,6 +2939,7 @@
 
     function badBlocksChip(g) {
       if (!g) return '';
+      if (g.sourceKind !== 'compressed') return '';
       if (g.activeOp) {
         const job = jobForOperation(g.activeOp);
         if (operationShowsRepairedOutcome(g.activeOp, job)) return '';
@@ -2720,12 +3139,14 @@
     function opKey(op) {
       if (!op) return '';
       return [
-        op.id, op.titleId, op.displayName, op.action, op.status, op.phase,
-        op.result, op.error, op.sourcePath, op.outputPath, op.sourceKind,
-        op.deletePolicy, op.compressionProfile, op.repairSummary,
-        op.createdAt, op.startedAt, op.endedAt,
-        op.compressionSourceSize, op.compressedSize, op.savedBytes,
-        op.repairedBlocks, op.badBlocksFound,
+	        op.id, op.titleId, op.displayName, op.action, op.status, op.phase,
+	        op.result, op.error, op.sourcePath, op.outputPath, op.sourceKind,
+	        op.targetRoot, op.deletePolicy, op.compressionProfile, op.repairSummary,
+	        op.createdAt, op.startedAt, op.endedAt,
+	        op.compressionSourceSize, op.compressedSize, op.savedBytes,
+	        op.scanBytes, op.scanFiles, op.scanDirs, op.scanEntries,
+	        op.scanElapsedMs, op.scanWorkers,
+	        op.repairedBlocks, op.badBlocksFound,
         op.hashCheckedBlocks, op.softwareComparedBlocks
       ].map(keyPart).join('|');
     }
@@ -2733,13 +3154,16 @@
     function gameKey(g) {
       return [
         gameInstanceId(g),
-        g.titleId, g.name, g.sourceKind, g.sourcePath, g.outputPath,
-        g.storage, g.isMounted, g.mountStatus,
-        g.validation, g.primaryAction, g.sourceSize, g.freeBytes,
+	        g.titleId, g.name, g.sourceKind, g.sourcePath, g.outputPath,
+	        g.storage, g.isMounted, g.mountStatus,
+	        storageLabelForGame(g), gameInstanceRole(g), titleInstanceCount(g),
+	        g.validation, g.primaryAction, g.sourceSize, g.freeBytes,
         g.requiredBytes, g.extraBytes, g.streamMinFreeBytes,
         g.streamExtraBytes, g.savedBytes,
         g.compressionSourceSize, g.compressedSize,
-        g.sizePending, g.canStreamDelete, g.hasIcon,
+        g.sizePending, g.sizeStatus, g.sizeEstimated,
+        g.sizeMeasuredAt, g.sizeRefreshing,
+        g.canStreamDelete, g.hasIcon,
         iconVersion(g), g.outputExists, g.canMoveToUsb, g.canMoveToInternal,
         opKey(g.activeOp), opKey(g.pendingOp)
       ].map(keyPart).join('|');
@@ -2766,6 +3190,13 @@
       return state.games.find(hasFree) || selected || null;
     }
 
+    function headerFreeSpaceLabel(g) {
+      if (!g) return 'Free Space';
+      const fromOutput = storageInfoForPath(g.outputPath);
+      const label = fromOutput.label || storageLabelForGame(g);
+      return label ? label + ' Free' : 'Free Space';
+    }
+
     function headerKey() {
       const g = selectedGame();
       const fallback = headerFreeSpaceGame(g);
@@ -2774,7 +3205,10 @@
         g && g.freeBytes,
         fallback && fallback.freeBytes,
         g && g.outputPath,
-        g && g.storage
+        g && g.storage,
+        fallback && fallback.outputPath,
+        fallback && fallback.sourcePath,
+        fallback && fallback.storage
       ].map(keyPart).join('|');
     }
 
@@ -2789,9 +3223,10 @@
         ].map(keyPart).join('|');
       }
       return [
-        gameKey(g), actionFor(g), actionLabel(g),
-        compressionResultKeyForGame(g),
-        repairResultKeyForGame(g),
+	        gameKey(g), actionFor(g), actionLabel(g),
+	        compressionResultKeyForGame(g),
+	        operationScanSummary((g && g.activeOp) || latestCompressionOperationForGame(g)),
+	        repairResultKeyForGame(g),
         g && g.activeOp && state.job && state.job.activeId === g.activeOp.id
           ? [
             state.job.badBlocksFound,
@@ -2859,18 +3294,21 @@
         list.innerHTML = '<div class="empty">No games found</div>';
         return;
       }
-      list.innerHTML = state.games.map((g) => (
-        '<button class="game-row ' +
-        (gameInstanceId(g) === state.selected ? 'is-selected ' : '') +
-        (g.isMounted === false ? 'is-unmounted' : '') +
-        '" data-id="' + escapeHtml(gameInstanceId(g)) + '">' +
-        '<div class="thumb">' + gameIcon(g, false) + '</div>' +
-        '<div class="row-main"><div class="row-title">' + escapeHtml(g.name || g.titleId) + '</div>' +
-        '<div class="row-sub"><span>' + escapeHtml(g.titleId + ' -') + '</span>' +
-        '<span class="row-storage">' + escapeHtml(g.storage || 'storage') + '</span></div></div>' +
-        statusChip(g) +
-        '</button>'
-      )).join('');
+	      list.innerHTML = state.games.map((g) => (
+	        '<button class="game-row ' +
+	        (gameInstanceId(g) === state.selected ? 'is-selected ' : '') +
+	        (g.isMounted === false ? 'is-unmounted' : '') +
+	        (gameInstanceRole(g) === 'current output' ? ' is-output' : '') +
+	        '" data-id="' + escapeHtml(gameInstanceId(g)) + '">' +
+	        '<div class="thumb">' + gameIcon(g, false) + '</div>' +
+	        '<div class="row-main"><div class="row-title">' + escapeHtml(g.name || g.titleId) + '</div>' +
+	        '<div class="row-sub"><span>' + escapeHtml(g.titleId + ' -') + '</span>' +
+	        '<span class="row-storage">' + escapeHtml(smallLabel(storageLabelForGame(g))) + '</span></div>' +
+	        rowTagsHtml(g) +
+	        '</div>' +
+	        statusChip(g) +
+	        '</button>'
+	      )).join('');
       list.querySelectorAll('.game-row').forEach((row) => {
         row.addEventListener('click', () => {
           selectGame(row.getAttribute('data-id'), true, false);
@@ -2910,6 +3348,10 @@
       }[ch]));
     }
 
+    function smallLabel(s) {
+      return String(s || '').toLowerCase();
+    }
+
     function actionFor(g) {
       if (!g) return '';
       if (!g.sourcePath) return '';
@@ -2925,9 +3367,9 @@
       return 'Start';
     }
 
-    function pendingOperationLabel(op) {
-      const action = String((op && op.action) || '').toLowerCase();
-      if (action === 'compress') return 'Pending Compress';
+	    function pendingOperationLabel(op) {
+	      const action = String((op && op.action) || '').toLowerCase();
+	      if (action === 'compress') return 'Pending Compress';
       if (action === 'validate-repair' || action === 'validate-only') return 'Pending Validate';
       if (action === 'refresh-mount') return 'Pending Mount';
       if (action === 'uncompress') return 'Pending Unpack';
@@ -2936,9 +3378,30 @@
       if (action === 'copy-to-usb') return 'Pending Copy to External Storage';
       if (action === 'copy-to-internal') return 'Pending Copy to Internal SSD';
       if (action === 'delete-game-data') return 'Pending Delete';
-      if (action === 'read-speed-test') return 'Pending Read Speed Test';
-      return 'Pending Operation';
-    }
+	      if (action === 'read-speed-test') return 'Pending Read Speed Test';
+	      return 'Pending Operation';
+	    }
+
+	    function pendingOperationMeta(op) {
+	      const direction = operationDirectionText(op);
+	      const output = String((op && op.outputPath) || '').trim();
+	      if (direction && output) return direction + ' - ' + output;
+	      if (direction) return direction;
+	      return output;
+	    }
+
+	    function operationOutputMeta(op) {
+	      const output = String((op && op.outputPath) || '').trim();
+	      if (!output) return '';
+	      return 'output: ' + output;
+	    }
+
+	    function operationSavedMeta(op) {
+	      if (!opCanShowCompressionStats(op)) return '';
+	      const stats = compressionOpStats(op);
+	      const saved = Number((stats && stats.savedBytes) || 0);
+	      return saved > 0 ? 'saved ' + shortSize(saved) : '';
+	    }
 
     function progressPercent(job) {
       const units = progressUnits(job);
@@ -2971,9 +3434,9 @@
         : minutes + ':' + two(secs);
     }
 
-    function progressTiming(job) {
-      job = job || activeJob() || {};
-      const elapsed = Math.max(0, Number(job.elapsedSeconds || 0));
+	    function progressTiming(job) {
+	      job = job || activeJob() || {};
+	      const elapsed = Math.max(0, Number(job.elapsedSeconds || 0));
       const units = progressUnits(job);
       const percent = progressPercent(job);
       const fraction = units.countable && units.total > 0 ? units.done / units.total : 0;
@@ -2995,9 +3458,77 @@
         hasSpeed: instantSpeed > 0,
         elapsedText: formatDuration(elapsed),
         remainingText: remaining === null ? '--' : formatDuration(remaining),
-        speedText: speedText(instantSpeed)
-      };
-    }
+	        speedText: speedText(instantSpeed)
+	      };
+	    }
+
+	    function progressCurrentParts(op, job) {
+	      return {
+	        direction: operationDirectionText(op),
+	        current: ''
+	      };
+	    }
+
+	    function progressCurrentHtml(op, job) {
+	      const parts = progressCurrentParts(op, job);
+	      if (!parts.direction && !parts.current) return '';
+	      return '<div class="progress-current">' +
+	        (parts.direction
+	          ? '<div class="progress-direction">' + escapeHtml(parts.direction) + '</div>'
+	          : '') +
+	        (parts.current
+	          ? '<div class="progress-current-file">' + escapeHtml(parts.current) + '</div>'
+	          : '') +
+	        '</div>';
+	    }
+
+	    function renderProgressCurrentLine(el, op, job) {
+	      if (!el) return;
+	      const parts = progressCurrentParts(op, job);
+	      el.innerHTML =
+	        (parts.direction
+	          ? '<div class="progress-direction">' + escapeHtml(parts.direction) + '</div>'
+	          : '') +
+	        (parts.current
+	          ? '<div class="progress-current-file">' + escapeHtml(parts.current) + '</div>'
+	          : '');
+	    }
+
+	    function scanProgressInfo(job, op, g) {
+	      const scanned = Math.max(0, Number((job && job.scanBytes) || (op && op.scanBytes) || 0));
+	      if (scanned <= 0) return { countable: false, percent: 0, scanned, total: 0 };
+	      const candidates = [
+	        Number(job && job.totalBytes || 0),
+	        Number(op && op.compressionSourceSize || 0),
+	        Number(g && g.sourceSize || 0),
+	        Number(g && g.requiredBytes || 0)
+	      ];
+	      let total = 0;
+	      for (const candidate of candidates) {
+	        const value = Math.max(0, Number(candidate || 0));
+	        if (value > 0 && value >= scanned * 0.98) {
+	          total = value;
+	          break;
+	        }
+	      }
+	      if (total <= 0) return { countable: false, percent: 0, scanned, total: 0 };
+	      return {
+	        countable: true,
+	        percent: Math.max(0, Math.min(100, scanned / total * 100)),
+	        scanned,
+	        total
+	      };
+	    }
+
+	    function operationScanSummary(op) {
+	      const scanned = Math.max(0, Number((op && op.scanBytes) || 0));
+	      if (!op || scanned <= 0) return '';
+	      const scan = scanProgressInfo(null, op, null);
+	      if (scan.countable) {
+	        return 'scan: ' + scan.percent.toFixed(0) + '%';
+	      }
+	      return 'scan: ' + shortSize(scanned);
+	    }
 
     function speedMetricBytes(job) {
       job = job || {};
@@ -3133,7 +3664,17 @@
         const cancelDisabledReason = String((job && job.cancelDisabledReason) || '');
         const progress = progressTiming(job);
         const visual = operationVisual(g.activeOp, job);
-        const fillPercent = progressFillPercent(progress, visual);
+        const scanProgress = visual.className === 'scanning'
+          ? scanProgressInfo(job, g.activeOp, g)
+          : null;
+        const displayPercent = scanProgress && scanProgress.countable
+          ? scanProgress.percent
+          : visualShowsPercent(visual, progress)
+            ? progress.percent
+            : null;
+        const fillPercent = scanProgress
+          ? (scanProgress.countable ? scanProgress.percent : 0)
+          : progressFillPercent(progress, visual);
         const cancelAttrs = cancelDisabled
           ? ' disabled title="' + escapeHtml(cancelDisabledReason || 'Operation cannot be cancelled now') + '"'
           : destructiveStreamLocked
@@ -3141,12 +3682,13 @@
           : jobCanceling(job)
             ? ' disabled title="Cancel already requested"'
             : ' title="Cancel operation"';
-        const percentText = visualShowsPercent(visual, progress)
-          ? '<span class="progress-percent">' + progress.percent.toFixed(0) + '%</span>'
-          : '';
-        const throughputHtml = visualShowsThroughput(visual, progress)
-          ? '<span class="progress-time progress-speed">' +
-          '<span class="progress-speed-value">' + progress.speedText + '</span></span>' +
+	        const percentText = displayPercent !== null
+	          ? '<span class="progress-percent">' + displayPercent.toFixed(0) + '%</span>'
+	          : '';
+	        const currentHtml = progressCurrentHtml(g.activeOp, job);
+	        const throughputHtml = visualShowsThroughput(visual, progress)
+	          ? '<span class="progress-time progress-speed">' +
+	          '<span class="progress-speed-value">' + progress.speedText + '</span></span>' +
           (progress.countable
             ? '<span class="progress-time progress-remaining">ETA: ' +
             '<span class="progress-remaining-value">' + progress.remainingText + '</span></span>'
@@ -3154,11 +3696,12 @@
           : '';
         return '<div class="active-action-row">' +
           '<div class="progress-box is-' + visual.className + '">' +
-          '<div class="progress-heading">' +
-          '<span class="progress-label">' + escapeHtml(visual.label) + '</span>' +
-          percentText +
-          '</div>' +
-          '<div class="bar"><span class="progress-fill" style="width:' + fillPercent.toFixed(1) + '%"></span></div>' +
+	          '<div class="progress-heading">' +
+	          '<span class="progress-label">' + escapeHtml(visual.label) + '</span>' +
+	          percentText +
+	          '</div>' +
+	          currentHtml +
+	          '<div class="bar"><span class="progress-fill" style="width:' + fillPercent.toFixed(1) + '%"></span></div>' +
           '<div class="progress-times">' +
           '<span class="progress-time progress-elapsed">' + icon('timer') +
           '<span class="progress-elapsed-value">' + progress.elapsedText + '</span></span>' +
@@ -3168,11 +3711,14 @@
           '<button class="more-btn" id="cancel-active" aria-label="Cancel operation"' + cancelAttrs + '>' + icon('close') + '</button>' +
           '</div>';
       }
-      if (g.pendingOp) {
-        return '<div class="pending-box"><div class="pending-label">' +
-          escapeHtml(pendingOperationLabel(g.pendingOp)) + '</div>' +
-          '<button class="small-action" id="cancel-pending">Cancel</button></div>';
-      }
+	      if (g.pendingOp) {
+	        const meta = pendingOperationMeta(g.pendingOp);
+	        return '<div class="pending-box"><div class="pending-label">' +
+	          escapeHtml(pendingOperationLabel(g.pendingOp)) +
+	          (meta ? '<div class="pending-meta">' + escapeHtml(meta) + '</div>' : '') +
+	          '</div>' +
+	          '<button class="small-action" id="cancel-pending">Cancel</button></div>';
+	      }
       const action = actionFor(g);
       if (!action) return '<button class="primary-btn" disabled>Unavailable</button>';
       const primary = '<button class="primary-btn" id="primary-action">' + escapeHtml(actionLabel(g)) + '</button>';
@@ -3408,14 +3954,16 @@
         '<div class="hero-icon' + heroIconClass(g) + '">' + gameIcon(g, true) + '</div>' +
         '<h2 class="game-title">' + escapeHtml(g.name || g.titleId) + '</h2>' +
         '<div class="facts">' +
-        '<span class="chip">' + escapeHtml(g.titleId) + '</span>' +
-        storageChip(g) +
-        '<span class="chip">' + escapeHtml(g.sourceKind) + '</span>' +
-        detailMountStateChip(g) +
+	        '<span class="chip">' + escapeHtml(g.titleId) + '</span>' +
+	        storageChip(g) +
+	        '<span class="chip">' + escapeHtml(g.sourceKind) + '</span>' +
+	        instanceRoleChip(g) +
+	        locationCountChip(g) +
+	        detailMountStateChip(g) +
         detailStatusChip(g) +
-        sizeChip(g) +
-        savedChip(g) +
-        badBlocksChip(g) +
+	        sizeChip(g) +
+	        savedChip(g) +
+	        badBlocksChip(g) +
         repairedBlocksChip(g) +
         '</div>' +
         '<div class="primary-area">' + renderPrimary(g) + '</div>' +
@@ -3453,22 +4001,31 @@
         body.innerHTML = '<div class="empty">No operations</div>';
         return;
       }
-      body.innerHTML = rows.map((op) => {
-        const chipClass = op.status === 'success' ? 'ok' :
-          op.status === 'failed' ? 'bad' :
-            op.status === 'running' ? 'run' :
-              op.status === 'pending' ? 'warn' : '';
-        const repairText = repairedBlocksText(op, jobForOperation(op));
-        const result = historyResultLabel(op, jobForOperation(op));
-        const repairMeta = repairText && result !== repairText ?
-          '<div class="history-meta">' + escapeHtml(repairText) + '</div>' : '';
-        return '<div class="history-row">' +
-          '<div><div class="history-title">' + escapeHtml(op.displayName || op.titleId) + '</div>' +
-          '<div class="history-meta">' + escapeHtml(op.action) + ' - ' + escapeHtml(result) + '</div>' +
-          repairMeta +
-          (op.error ? '<div class="history-meta danger-text">' + escapeHtml(op.error) + '</div>' : '') +
-          '</div><span class="chip ' + chipClass + '">' + escapeHtml(op.status) + '</span></div>';
-      }).join('');
+	      body.innerHTML = rows.map((op) => {
+	        const chipClass = op.status === 'success' ? 'ok' :
+	          op.status === 'failed' ? 'bad' :
+	            op.status === 'running' ? 'run' :
+	              op.status === 'pending' ? 'warn' : '';
+	        const repairText = repairedBlocksText(op, jobForOperation(op));
+	        const result = historyResultLabel(op, jobForOperation(op));
+	        const repairMeta = repairText && result !== repairText ?
+	          '<div class="history-meta">' + escapeHtml(repairText) + '</div>' : '';
+	        const metaRows = [
+	          operationDirectionText(op),
+	          operationOutputMeta(op),
+	          operationSavedMeta(op),
+	          operationScanSummary(op)
+	        ].filter(Boolean).map((text) => (
+	          '<div class="history-meta">' + escapeHtml(text) + '</div>'
+	        )).join('');
+	        return '<div class="history-row">' +
+	          '<div><div class="history-title">' + escapeHtml(op.displayName || op.titleId) + '</div>' +
+	          '<div class="history-meta">' + escapeHtml(op.action) + ' - ' + escapeHtml(result) + '</div>' +
+	          metaRows +
+	          repairMeta +
+	          (op.error ? '<div class="history-meta danger-text">' + escapeHtml(op.error) + '</div>' : '') +
+	          '</div><span class="chip ' + chipClass + '">' + escapeHtml(smallLabel(op.status)) + '</span></div>';
+	      }).join('');
     }
 
     function renderHeader(force) {
@@ -3476,17 +4033,15 @@
       if (!force && state.renderKeys.header === key) return;
       state.renderKeys.header = key;
       const label = $('free-space-label');
-      const value = label ? label.querySelector('span') : null;
       const g = selectedGame();
       const freeGame = headerFreeSpaceGame(g);
       const freeBytes = freeGame ? Number(freeGame.freeBytes) : NaN;
-      if (value) {
-        value.textContent = Number.isFinite(freeBytes) ? shortSize(freeBytes) : '--';
-      }
       if (label) {
+        label.innerHTML = escapeHtml(headerFreeSpaceLabel(freeGame)) +
+          ' <span>' + escapeHtml(Number.isFinite(freeBytes) ? shortSize(freeBytes) : '--') + '</span>';
         label.title = freeGame && freeGame.outputPath
-          ? 'Free space for ' + freeGame.outputPath
-          : 'Free space';
+          ? headerFreeSpaceLabel(freeGame) + ' for ' + freeGame.outputPath
+          : headerFreeSpaceLabel(freeGame);
       }
     }
 
@@ -3542,16 +4097,18 @@
       if (!g || !visual) return;
       document.querySelectorAll('[data-active-op-chip="' + gameInstanceId(g) + '"]').forEach((chip) => {
         chip.className = 'chip ' + visual.className;
-        chip.textContent = visual.label;
+        chip.textContent = smallLabel(visual.label);
       });
     }
 
     function updateProgressOnly() {
       const box = document.querySelector('.progress-box');
       if (!box) return;
-      const label = box.querySelector('.progress-label');
-      let percent = box.querySelector('.progress-percent');
-      const fill = box.querySelector('.progress-fill');
+	      const label = box.querySelector('.progress-label');
+	      let percent = box.querySelector('.progress-percent');
+	      let currentLine = box.querySelector('.progress-current');
+	      const scanLine = box.querySelector('.progress-scan');
+	      const fill = box.querySelector('.progress-fill');
       const elapsed = box.querySelector('.progress-elapsed-value');
       const speedRow = box.querySelector('.progress-speed');
       const speed = box.querySelector('.progress-speed-value');
@@ -3568,29 +4125,55 @@
       const visual = g && g.activeOp
         ? operationVisual(g.activeOp, job)
         : { label: 'Running', className: 'run' };
-      box.classList.remove('is-compressing', 'is-closing', 'is-mounting', 'is-validating', 'is-repacking',
-        'is-moving', 'is-reading', 'is-deleting', 'is-finalizing', 'is-unpacking', 'is-restoring', 'is-run');
+	      const scanProgress = visual.className === 'scanning'
+	        ? scanProgressInfo(job, g && g.activeOp, g)
+	        : null;
+	      const displayPercent = scanProgress && scanProgress.countable
+	        ? scanProgress.percent
+	        : visualShowsPercent(visual, progress)
+	          ? progress.percent
+	          : null;
+	      box.classList.remove('is-compressing', 'is-closing', 'is-mounting', 'is-validating', 'is-scanning', 'is-repacking',
+	        'is-moving', 'is-reading', 'is-deleting', 'is-finalizing', 'is-unpacking', 'is-restoring', 'is-run');
       box.classList.add('is-' + visual.className);
       if (label) {
         label.textContent = visual.label;
       }
-      const showPercent = visualShowsPercent(visual, progress);
-      if (!percent && showPercent && label && label.parentNode) {
+      if (!percent && displayPercent !== null && label && label.parentNode) {
         percent = document.createElement('span');
         percent.className = 'progress-percent';
         label.parentNode.appendChild(percent);
       }
-      if (percent) {
-        if (showPercent) {
+	      if (percent) {
+	        if (displayPercent !== null) {
           percent.className = 'progress-percent';
-          percent.textContent = progress.percent.toFixed(0) + '%';
+          percent.textContent = displayPercent.toFixed(0) + '%';
         } else {
           percent.remove();
-          percent = null;
-        }
-      }
-      if (fill) {
-        fill.style.width = progressFillPercent(progress, visual).toFixed(1) + '%';
+	          percent = null;
+	        }
+	      }
+	      const heading = box.querySelector('.progress-heading');
+	      const bar = box.querySelector('.bar');
+	      const currentParts = progressCurrentParts(g && g.activeOp, job);
+	      if (currentParts.direction || currentParts.current) {
+	        if (!currentLine && heading && heading.parentNode) {
+	          currentLine = document.createElement('div');
+	          currentLine.className = 'progress-current';
+	          heading.parentNode.insertBefore(currentLine, heading.nextSibling);
+	        }
+	        renderProgressCurrentLine(currentLine, g && g.activeOp, job);
+	      } else if (currentLine) {
+	        currentLine.remove();
+	        currentLine = null;
+	      }
+	      if (scanLine) {
+	        scanLine.remove();
+	      }
+	      if (fill) {
+        fill.style.width = (scanProgress
+          ? (scanProgress.countable ? scanProgress.percent : 0)
+          : progressFillPercent(progress, visual)).toFixed(1) + '%';
       }
       if (elapsed) {
         elapsed.textContent = progress.elapsedText;
@@ -3616,36 +4199,44 @@
       updateActiveOperationVisual(visual);
     }
 
-    async function refreshAll() {
-      if (refreshAllInFlight) return;
-      refreshAllInFlight = true;
-      if (!state.gamesLoaded && !state.games.length) {
-        state.gamesLoading = true;
+	    async function refreshAll() {
+	      if (refreshAllInFlight) return;
+	      refreshAllInFlight = true;
+	      const previousSelection = state.selected;
+	      const previousSelected = selectedGame();
+	      const previousTitleId = previousSelected ? previousSelected.titleId : titleIdFromSelection(previousSelection);
+	      if (!state.gamesLoaded && !state.games.length) {
+	        state.gamesLoading = true;
         state.gamesError = '';
         renderList(true);
         renderDetail(true);
       }
       try {
-        const [games, history] = await Promise.all([
+        const [games, history, job] = await Promise.all([
           api('/api/gc/games'),
-          api('/api/gc/history')
+          api('/api/gc/history'),
+          api('/api/gc/job').catch(() => null)
         ]);
         state.gamesLoading = false;
         state.gamesLoaded = true;
-        state.gamesError = '';
-        state.games = sortGamesForList(games.games || []);
-        state.history = history.history || [];
-        if (!state.selected && state.games[0]) {
-          selectGame(gameInstanceId(state.games[0]), false, false);
-        }
-        if (state.selected && !state.games.some((g) => gameInstanceId(g) === state.selected)) {
-          const legacy = state.games.find((g) => String(g.titleId || '') === String(state.selected || ''));
-          if (legacy) {
-            selectGame(gameInstanceId(legacy), true, false);
-          } else if (state.games[0]) {
-            selectGame(gameInstanceId(state.games[0]), true, false);
-          }
-        }
+	        state.gamesError = '';
+	        if (job) {
+	          state.job = job;
+	          updateSpeedSample(job);
+	        }
+	        state.history = history.history || [];
+	        state.games = games.games || [];
+	        applyOperationOutputPresentation();
+	        state.games = sortGamesForList(state.games);
+	        if (!state.selected && state.games[0]) {
+	          selectGame(gameInstanceId(state.games[0]), false, false);
+	        }
+	        if (state.selected) {
+	          reconcileSelectedGameAfterRefresh(previousSelection, previousTitleId);
+	        }
+	        if (state.games.some((g) => g && g.sourceKind === 'folder' && sizeWorkActive(g))) {
+	          startSizePollBurst(8000);
+	        }
         render();
         updateProgressOnly();
       } catch (err) {
@@ -3707,9 +4298,9 @@
       }, 250);
     }
 
-    function renderUsbList() {
-      const body = $('usb-body');
-      const copyMode = state.moveMode === 'copy';
+	    function renderUsbList() {
+	      const body = $('usb-body');
+	      const copyMode = state.moveMode === 'copy';
       const targets = state.moveGame
         ? state.usb.filter((usb) => !pathUnderRoot(state.moveGame.sourcePath, usb.path))
         : state.usb;
@@ -3717,13 +4308,13 @@
         body.innerHTML = '<div class="empty">No other external storage with 10 MB free</div>';
         return;
       }
-      body.innerHTML = targets.map((usb) => (
-        '<button class="usb-row" data-id="' + escapeHtml(usb.id) + '">' +
-        '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
-        '<div class="history-meta">' + escapeHtml(usb.path) + '</div>' +
-        '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes) + '</div></div>' +
-        '<span class="chip">Select</span>' +
-        '</button>'
+	      body.innerHTML = targets.map((usb) => (
+	        '<button class="usb-row" data-id="' + escapeHtml(usb.id) + '">' +
+	        '<div><div class="history-title">' + escapeHtml(usbTargetLabel(usb)) + '</div>' +
+	        '<div class="history-meta">' + escapeHtml(usb.targetRoot || usb.path) + '</div>' +
+	        '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes) + '</div></div>' +
+	        '<span class="chip">Select</span>' +
+	        '</button>'
       )).join('');
       body.querySelectorAll('.usb-row').forEach((row) => {
         row.addEventListener('click', () => {
@@ -3737,30 +4328,37 @@
       });
     }
 
-    function selectedCompressUsb() {
-      return (state.usb || []).find((usb) => usb.id === state.compressUsbId) || null;
-    }
+	    function selectedCompressUsb() {
+	      return (state.usb || []).find((usb) => usb.id === state.compressUsbId) || null;
+	    }
 
-    function usbPickerOptionHtml(usb, attrName, selectedId) {
-      const selected = usb.id === selectedId;
-      return '<button class="usb-picker-option' + (selected ? ' is-selected' : '') +
-        '" type="button" ' + attrName + '="' + escapeHtml(usb.id) + '">' +
-        '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
-        '<div class="history-meta">' + escapeHtml(usb.path) + '</div>' +
-        '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' +
-        shortSize(usb.totalBytes) + '</div></div>' +
+	    function usbTargetLabel(usb) {
+	      if (!usb) return '';
+	      const name = String(usb.name || 'USB');
+	      const target = String(usb.targetRoot || usb.path || '');
+	      return target ? name + ' (' + target + ')' : name;
+	    }
+
+	    function usbPickerOptionHtml(usb, attrName, selectedId) {
+	      const selected = usb.id === selectedId;
+	      return '<button class="usb-picker-option' + (selected ? ' is-selected' : '') +
+	        '" type="button" ' + attrName + '="' + escapeHtml(usb.id) + '">' +
+	        '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
+	        '<div class="history-meta">' + escapeHtml(usb.targetRoot || usb.path) + '</div>' +
+	        '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' +
+	        shortSize(usb.totalBytes) + '</div></div>' +
         '<span class="chip' + (selected ? ' run' : '') + '">' +
         (selected ? 'Selected' : 'Select') + '</span>' +
         '</button>';
     }
 
-    function usbPickerTriggerHtml(usb, expanded, attrName) {
-      return '<button class="usb-picker-trigger" type="button" ' + attrName +
-        ' aria-haspopup="listbox" aria-expanded="' + (expanded ? 'true' : 'false') + '">' +
-        '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
-        '<div class="history-meta">' + escapeHtml(usb.path) + '</div>' +
-        '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' +
-        shortSize(usb.totalBytes) + '</div></div>' +
+	    function usbPickerTriggerHtml(usb, expanded, attrName) {
+	      return '<button class="usb-picker-trigger" type="button" ' + attrName +
+	        ' aria-haspopup="listbox" aria-expanded="' + (expanded ? 'true' : 'false') + '">' +
+	        '<div><div class="history-title">' + escapeHtml(usb.name) + '</div>' +
+	        '<div class="history-meta">' + escapeHtml(usb.targetRoot || usb.path) + '</div>' +
+	        '<div class="history-meta">' + shortSize(usb.freeBytes) + ' free of ' +
+	        shortSize(usb.totalBytes) + '</div></div>' +
         '<span class="chip">' + (expanded ? 'Close' : 'Change') + '</span>' +
         '</button>';
     }
@@ -3807,9 +4405,9 @@
           updateCompressModalSelection();
         });
       });
-      meta.textContent = usb
-        ? usb.path + ' - ' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes)
-        : '';
+	      meta.textContent = usb
+	        ? usbTargetLabel(usb) + ' - ' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes)
+	        : '';
     }
 
     function basenameFromPath(path) {
@@ -3864,9 +4462,9 @@
           updateUncompressModalSelection();
         });
       });
-      meta.textContent = usb
-        ? usb.path + ' - ' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes)
-        : '';
+	      meta.textContent = usb
+	        ? usbTargetLabel(usb) + ' - ' + shortSize(usb.freeBytes) + ' free of ' + shortSize(usb.totalBytes)
+	        : '';
     }
 
     function uncompressImageLabel(plan) {
@@ -4096,12 +4694,12 @@
     function safeSpaceText(g) {
       if (state.compressDestination === 'usb') {
         const usb = selectedCompressUsb();
-        const retention = state.compressSourcePolicy === 'keep'
-          ? 'keeps original source'
-          : 'original is removed after verification';
-        if (usb) return 'Writes to ' + usb.name + '; ' + retention;
-        return 'Writes to selected storage; ' + retention;
-      }
+	        const retention = state.compressSourcePolicy === 'keep'
+	          ? 'keeps original source'
+	          : 'original is removed after verification';
+	        if (usb) return 'Writes to ' + usbTargetLabel(usb) + '; ' + retention;
+	        return 'Writes to selected storage; ' + retention;
+	      }
       if (state.compressDestination === 'internal') {
         return state.compressSourcePolicy === 'keep'
           ? 'Writes to Internal SSD; keeps original source'

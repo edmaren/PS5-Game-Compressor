@@ -25,6 +25,7 @@
 #include "gc_diag.h"
 #include "gc_notify.h"
 #include "gc_shadowmount.h"
+#include "gc_size_cache.h"
 #include "pfs_compress.h"
 #include "pfs_validate_hash.h"
 #include "pfs_repair.h"
@@ -39,13 +40,10 @@
 #define GC_HISTORY_LOG GC_HISTORY_DIR "/history.jsonl"
 #define GC_MOUNT_SWITCH_LOG GC_BASE "/mount-switch-recovery.jsonl"
 #define GC_REPAIR_DIR GC_LOG_DIR "/repair"
-#define GC_SIZE_CACHE_LOG GC_BASE "/size-cache.jsonl"
 #define GC_HISTORY_KEY_SIZE 96
 #define GC_MAX_GAMES 128
 #define GC_MAX_SCAN_ROOTS 128
 #define GC_MAX_OPS 64
-#define GC_SIZE_CACHE_MAX 256
-#define GC_SIZE_QUEUE_MAX 128
 #define GC_ARTIFACT_SCAN_TTL_SECONDS 10
 #define GC_CLOSE_WAIT_SECONDS 20
 #define GC_REPAIR_WAIT_SECONDS 180
@@ -172,6 +170,10 @@ typedef struct gc_game {
   uint64_t compressed_size;
   uint64_t saved_bytes;
   int size_pending;
+  gc_size_status_t size_status;
+  int size_estimated;
+  uint64_t size_measured_at;
+  int size_refreshing;
   int can_stream_delete;
   int has_icon;
   uint64_t icon_size;
@@ -257,24 +259,12 @@ typedef struct gc_storage_target_def {
   const char *target_root;
 } gc_storage_target_def_t;
 
-typedef struct gc_size_cache_entry {
-  int used;
-  int measuring;
-  char path[1024];
-  uint64_t size;
-  time_t measured_at;
-} gc_size_cache_entry_t;
-
 static pthread_mutex_t g_gc_lock = PTHREAD_MUTEX_INITIALIZER;
 static gc_operation_t g_ops[GC_MAX_OPS];
 static uint64_t g_next_seq = 1;
 static int g_worker_running = 0;
-static pthread_mutex_t g_size_cache_lock = PTHREAD_MUTEX_INITIALIZER;
-static gc_size_cache_entry_t g_size_cache[GC_SIZE_CACHE_MAX];
-static char g_size_queue[GC_SIZE_QUEUE_MAX][1024];
-static size_t g_size_queue_count = 0;
-static int g_size_cache_loaded = 0;
-static int g_size_worker_running = 0;
+static pthread_mutex_t g_folder_size_recheck_lock = PTHREAD_MUTEX_INITIALIZER;
+static int g_folder_size_initial_recheck_done = 0;
 static pthread_mutex_t g_artifact_cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static gc_game_t g_artifact_cache[GC_MAX_GAMES];
 static size_t g_artifact_cache_count = 0;
@@ -298,10 +288,6 @@ static const gc_storage_target_def_t GC_STORAGE_TARGETS[GC_STORAGE_TARGET_COUNT]
   { "usb7", "USB 7", "/mnt/usb7", "/mnt/usb7/homebrew" },
 };
 
-static int size_cache_get(const char *path, uint64_t *size_out);
-static void size_cache_store(const char *path, uint64_t size);
-static void size_cache_forget(const char *path);
-static void size_cache_queue_measure(const char *path);
 static void fsync_parent_dir_best_effort(const char *path);
 
 static const char *
@@ -837,25 +823,44 @@ populate_game_size_ex(gc_game_t *g, int exact_folder_size, int honor_cancel) {
   g->required_bytes = 0;
   g->extra_needed = 0;
   g->size_pending = 0;
+  g->size_status = GC_SIZE_STATUS_UNKNOWN;
+  g->size_estimated = 0;
+  g->size_measured_at = 0;
+  g->size_refreshing = 0;
 
   if(g->source_kind == GC_SOURCE_FOLDER) {
     uint64_t cached_size = 0;
+    time_t measured_at = 0;
+    gc_size_status_t status = GC_SIZE_STATUS_UNKNOWN;
     if(exact_folder_size) {
       int cancelled = 0;
       g->source_size = source_size_bytes_exact_ex(
           g->source_path, g->source_kind, honor_cancel, &cancelled);
       if(cancelled) {
         g->size_pending = 1;
+        g->size_status = GC_SIZE_STATUS_UNKNOWN;
         return;
       }
       g->required_bytes = g->source_size;
-      size_cache_store(g->source_path, g->source_size);
-    } else if(size_cache_get(g->source_path, &cached_size) == 0) {
+      g->size_status = GC_SIZE_STATUS_DONE;
+      g->size_measured_at = (uint64_t)time(NULL);
+      gc_size_cache_store(g->source_path, g->source_size);
+    } else if(gc_size_cache_lookup(g->source_path, &cached_size, &measured_at,
+                                &status) == 0) {
       g->source_size = cached_size;
-      g->required_bytes = cached_size;
+      g->required_bytes = 0;
+      g->size_estimated = 1;
+      g->size_measured_at = measured_at > 0 ? (uint64_t)measured_at : 0;
+      g->size_status = status;
+      g->size_refreshing = status == GC_SIZE_STATUS_REFRESHING;
     } else {
+      /*
+       * Library scans must stay shallow, especially on USB. Exact operation
+       * sizes are measured only by explicit operations. The size cache is a
+       * display estimate and must not drive free-space safety checks.
+       */
       g->size_pending = 1;
-      size_cache_queue_measure(g->source_path);
+      g->size_status = status;
     }
   } else {
     int cancelled = 0;
@@ -863,17 +868,64 @@ populate_game_size_ex(gc_game_t *g, int exact_folder_size, int honor_cancel) {
         g->source_path, g->source_kind, honor_cancel, &cancelled);
     if(cancelled) {
       g->size_pending = 1;
+      g->size_status = GC_SIZE_STATUS_UNKNOWN;
       return;
     }
     g->required_bytes = g->source_size;
+    g->size_status = GC_SIZE_STATUS_DONE;
   }
 
   if(g->output_path[0] && free_bytes_for_output(g->output_path,
                                                 &g->free_bytes) == 0 &&
-     !g->size_pending) {
+     !g->size_pending && !g->size_estimated) {
     g->extra_needed = g->free_bytes >= g->required_bytes
         ? 0
         : g->required_bytes - g->free_bytes;
+  }
+}
+
+static void
+size_cache_apply_display_to_game(gc_game_t *g) {
+  if(!g || g->source_kind != GC_SOURCE_FOLDER) return;
+  uint64_t cached_size = 0;
+  time_t measured_at = 0;
+  gc_size_status_t status = GC_SIZE_STATUS_UNKNOWN;
+  if(gc_size_cache_lookup(g->source_path, &cached_size, &measured_at,
+                       &status) == 0) {
+    g->source_size = cached_size;
+    g->required_bytes = 0;
+    g->extra_needed = 0;
+    g->size_pending = 0;
+    g->size_estimated = 1;
+    g->size_measured_at = measured_at > 0 ? (uint64_t)measured_at : 0;
+    g->size_status = status;
+    g->size_refreshing = status == GC_SIZE_STATUS_REFRESHING;
+  } else {
+    g->source_size = 0;
+    g->required_bytes = 0;
+    g->extra_needed = 0;
+    g->size_pending = 1;
+    g->size_estimated = 0;
+    g->size_measured_at = 0;
+    g->size_status = status;
+    g->size_refreshing = 0;
+  }
+}
+
+static void
+queue_folder_game_size_rechecks(gc_game_t *games, size_t count) {
+  if(!games || count == 0) return;
+  pthread_mutex_lock(&g_folder_size_recheck_lock);
+  if(g_folder_size_initial_recheck_done) {
+    pthread_mutex_unlock(&g_folder_size_recheck_lock);
+    return;
+  }
+  g_folder_size_initial_recheck_done = 1;
+  pthread_mutex_unlock(&g_folder_size_recheck_lock);
+  for(size_t i = 0; i < count; i++) {
+    if(games[i].source_kind == GC_SOURCE_FOLDER && games[i].source_path[0]) {
+      gc_size_cache_queue_recheck(games[i].source_path);
+    }
   }
 }
 
@@ -1204,243 +1256,6 @@ json_find_u64_value(const char *json, const char *key, uint64_t fallback) {
   return (uint64_t)strtoull(p, NULL, 10);
 }
 
-static int
-size_cache_find_locked(const char *path) {
-  if(!path || !path[0]) return -1;
-  for(size_t i = 0; i < GC_SIZE_CACHE_MAX; i++) {
-    if(g_size_cache[i].used && !strcmp(g_size_cache[i].path, path)) {
-      return (int)i;
-    }
-  }
-  return -1;
-}
-
-static int
-size_cache_slot_locked(void) {
-  int oldest = -1;
-  time_t oldest_time = 0;
-  for(size_t i = 0; i < GC_SIZE_CACHE_MAX; i++) {
-    if(!g_size_cache[i].used) return (int)i;
-    if(g_size_cache[i].measuring) continue;
-    if(oldest < 0 || g_size_cache[i].measured_at < oldest_time) {
-      oldest = (int)i;
-      oldest_time = g_size_cache[i].measured_at;
-    }
-  }
-  return oldest >= 0 ? oldest : 0;
-}
-
-static void
-size_cache_store_memory_locked(const char *path, uint64_t size,
-                               time_t measured_at) {
-  if(!path || !path[0]) return;
-  int idx = size_cache_find_locked(path);
-  if(idx < 0) idx = size_cache_slot_locked();
-  memset(&g_size_cache[idx], 0, sizeof(g_size_cache[idx]));
-  g_size_cache[idx].used = 1;
-  snprintf(g_size_cache[idx].path, sizeof(g_size_cache[idx].path), "%s", path);
-  g_size_cache[idx].size = size;
-  g_size_cache[idx].measured_at = measured_at > 0 ? measured_at : time(NULL);
-}
-
-static void
-size_cache_forget_memory_locked(const char *path) {
-  int idx = size_cache_find_locked(path);
-  if(idx >= 0) memset(&g_size_cache[idx], 0, sizeof(g_size_cache[idx]));
-}
-
-static void
-size_cache_load_locked(void) {
-  if(g_size_cache_loaded) return;
-  g_size_cache_loaded = 1;
-
-  FILE *f = fopen(GC_SIZE_CACHE_LOG, "r");
-  if(!f) return;
-
-  char line[2048];
-  while(fgets(line, sizeof(line), f)) {
-    char path[1024] = {0};
-    struct stat st;
-    line[strcspn(line, "\r\n")] = 0;
-    if(!json_find_string_value(line, "path", path, sizeof(path)) ||
-       !path_is_safe(path)) {
-      continue;
-    }
-    uint64_t valid = json_find_u64_value(line, "valid", 1);
-    if(!valid) {
-      size_cache_forget_memory_locked(path);
-      continue;
-    }
-    if(lstat(path, &st) != 0 || !S_ISDIR(st.st_mode)) {
-      size_cache_forget_memory_locked(path);
-      continue;
-    }
-    uint64_t size = json_find_u64_value(line, "size", 0);
-    uint64_t measured_at = json_find_u64_value(line, "measuredAt", 0);
-    size_cache_store_memory_locked(path, size, (time_t)measured_at);
-  }
-  fclose(f);
-}
-
-static void
-size_cache_append_row(const char *path, uint64_t size, int valid,
-                      time_t measured_at) {
-  if(mkdirs(GC_BASE) != 0) return;
-  int fd = open(GC_SIZE_CACHE_LOG, O_WRONLY | O_CREAT | O_APPEND, 0666);
-  if(fd < 0) return;
-  json_buf_t b = {0};
-  if(json_append(&b, "{\"path\":") == 0 &&
-     json_string(&b, path) == 0 &&
-     json_appendf(&b, ",\"size\":%llu,\"valid\":%d,"
-                  "\"measuredAt\":%ld}\n",
-                  (unsigned long long)size,
-                  valid ? 1 : 0,
-                  (long)measured_at) == 0) {
-    write_all_fd(fd, b.data, b.len);
-    fsync(fd);
-  }
-  free(b.data);
-  close(fd);
-}
-
-static int
-size_cache_get(const char *path, uint64_t *size_out) {
-  int ok = 0;
-  pthread_mutex_lock(&g_size_cache_lock);
-  size_cache_load_locked();
-  int idx = size_cache_find_locked(path);
-  if(idx >= 0 && !g_size_cache[idx].measuring &&
-     g_size_cache[idx].measured_at > 0 &&
-     g_size_cache[idx].size > 0) {
-    if(size_out) *size_out = g_size_cache[idx].size;
-    ok = 1;
-  }
-  pthread_mutex_unlock(&g_size_cache_lock);
-  return ok ? 0 : -1;
-}
-
-static void
-size_cache_store(const char *path, uint64_t size) {
-  if(!path || !path_is_safe(path)) return;
-  time_t now = time(NULL);
-  pthread_mutex_lock(&g_size_cache_lock);
-  size_cache_load_locked();
-  size_cache_store_memory_locked(path, size, now);
-  pthread_mutex_unlock(&g_size_cache_lock);
-  size_cache_append_row(path, size, 1, now);
-}
-
-static void
-size_cache_forget(const char *path) {
-  if(!path || !path_is_safe(path)) return;
-  time_t now = time(NULL);
-  pthread_mutex_lock(&g_size_cache_lock);
-  size_cache_load_locked();
-  size_cache_forget_memory_locked(path);
-  pthread_mutex_unlock(&g_size_cache_lock);
-  size_cache_append_row(path, 0, 0, now);
-}
-
-static void *
-size_cache_worker(void *arg) {
-  (void)arg;
-  while(1) {
-    char path[1024];
-    pthread_mutex_lock(&g_size_cache_lock);
-    if(g_size_queue_count == 0) {
-      g_size_worker_running = 0;
-      pthread_mutex_unlock(&g_size_cache_lock);
-      return NULL;
-    }
-    snprintf(path, sizeof(path), "%s", g_size_queue[0]);
-    if(g_size_queue_count > 1) {
-      memmove(&g_size_queue[0], &g_size_queue[1],
-              (g_size_queue_count - 1) * sizeof(g_size_queue[0]));
-    }
-    g_size_queue_count--;
-    pthread_mutex_unlock(&g_size_cache_lock);
-
-    struct stat st;
-    if(lstat(path, &st) != 0 || !S_ISDIR(st.st_mode)) {
-      gc_log("size cache skipped missing folder path=%s", path);
-      size_cache_forget(path);
-      continue;
-    }
-
-    gc_log("size cache measuring path=%s", path);
-    du_state_t du;
-    if(atomic_load(&g_job.busy)) du_walk_cancelable(path, &du);
-    else du_walk(path, &du);
-    if(du.cancelled) {
-      gc_log("size cache measurement cancelled path=%s entries=%llu",
-             path, (unsigned long long)du.entries);
-      continue;
-    }
-    size_cache_store(path, du.bytes);
-    gc_log("size cache measured path=%s bytes=%llu entries=%llu",
-           path, (unsigned long long)du.bytes,
-           (unsigned long long)du.entries);
-  }
-}
-
-static void
-size_cache_queue_measure(const char *path) {
-  if(!path || !path_is_safe(path)) return;
-  int start_worker = 0;
-
-  pthread_mutex_lock(&g_size_cache_lock);
-  size_cache_load_locked();
-  int idx = size_cache_find_locked(path);
-  if(idx >= 0 && g_size_cache[idx].measured_at > 0 &&
-     !g_size_cache[idx].measuring) {
-    pthread_mutex_unlock(&g_size_cache_lock);
-    return;
-  }
-  if(idx >= 0 && g_size_cache[idx].measuring) {
-    pthread_mutex_unlock(&g_size_cache_lock);
-    return;
-  }
-  for(size_t i = 0; i < g_size_queue_count; i++) {
-    if(!strcmp(g_size_queue[i], path)) {
-      pthread_mutex_unlock(&g_size_cache_lock);
-      return;
-    }
-  }
-  if(g_size_queue_count >= GC_SIZE_QUEUE_MAX) {
-    gc_log("size cache queue full path=%s", path);
-    pthread_mutex_unlock(&g_size_cache_lock);
-    return;
-  }
-  if(idx < 0) idx = size_cache_slot_locked();
-  memset(&g_size_cache[idx], 0, sizeof(g_size_cache[idx]));
-  g_size_cache[idx].used = 1;
-  g_size_cache[idx].measuring = 1;
-  snprintf(g_size_cache[idx].path, sizeof(g_size_cache[idx].path), "%s", path);
-  snprintf(g_size_queue[g_size_queue_count++], sizeof(g_size_queue[0]), "%s",
-           path);
-  if(!g_size_worker_running) {
-    g_size_worker_running = 1;
-    start_worker = 1;
-  }
-  pthread_mutex_unlock(&g_size_cache_lock);
-
-  if(start_worker) {
-    pthread_t t;
-    pthread_attr_t at;
-    pthread_attr_init(&at);
-    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
-    pthread_attr_setstacksize(&at, GC_WORKER_THREAD_STACK_SIZE);
-    int rc = pthread_create(&t, &at, size_cache_worker, NULL);
-    pthread_attr_destroy(&at);
-    if(rc != 0) {
-      pthread_mutex_lock(&g_size_cache_lock);
-      g_size_worker_running = 0;
-      pthread_mutex_unlock(&g_size_cache_lock);
-      gc_log("size cache worker start failed rc=%d", rc);
-    }
-  }
-}
-
 static void
 load_game_name(gc_game_t *g) {
   char path[1024];
@@ -1633,14 +1448,12 @@ write_validation_marker_file(const char *path, const char *data, size_t len) {
 
 static uint64_t
 folder_size_for_compression_stats(const char *path) {
-  uint64_t cached = 0;
   struct stat st;
   if(!path || !path[0]) return 0;
   if(lstat(path, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
-  if(size_cache_get(path, &cached) == 0 && cached > 0) return cached;
-  cached = source_size_bytes_exact(path, GC_SOURCE_FOLDER);
-  if(cached > 0) size_cache_store(path, cached);
-  return cached;
+  uint64_t exact = source_size_bytes_exact(path, GC_SOURCE_FOLDER);
+  if(exact > 0) gc_size_cache_store(path, exact);
+  return exact;
 }
 
 static uint64_t
@@ -3335,7 +3148,7 @@ delete_source_after_success(const char *path, gc_source_kind_t kind,
       snprintf(err, err_size, "remove source folder: %s", strerror(errno));
       return -1;
     }
-    size_cache_forget(path);
+    gc_size_cache_forget(path);
     return 0;
   }
   if(unlink(path) != 0 && errno != ENOENT) {
@@ -3475,7 +3288,7 @@ quarantine_uncompress_source(const char *source_path,
   snprintf(q->quarantine_path, sizeof(q->quarantine_path), "%s",
            quarantine_path);
   q->active = 1;
-  size_cache_forget(source_path);
+  gc_size_cache_forget(source_path);
   gc_log("uncompress source quarantined title=%s original=%s quarantine=%s",
          title_id ? title_id : "", source_path, quarantine_path);
   return 0;
@@ -3525,7 +3338,7 @@ uncompress_complete_not_mounted(gc_operation_t *op,
   if(uncompress_delete_quarantined_source_or_fail(op, q, err, err_size) != 0) {
     return -1;
   }
-  size_cache_queue_measure(info->output_path);
+  gc_size_cache_queue_measure(info->output_path);
   if(as_image) {
     gc_log("uncompress image complete but not mounted title=%s output=%s detail=%s",
            op->title_id, op->output_path, detail && detail[0] ? detail : "");
@@ -3578,7 +3391,7 @@ static void
 cleanup_failed_uncompress_output(const char *path, const char *title_id) {
   if(!path || !path[0]) return;
   if(remove_tree_gc(path) == 0) {
-    size_cache_forget(path);
+    gc_size_cache_forget(path);
     gc_log("uncompress cleanup removed invalid output title=%s path=%s",
            title_id ? title_id : "", path);
   } else {
@@ -4184,7 +3997,7 @@ mount_switch_hide_competitors(gc_operation_t *op, const gc_game_t *selected,
     }
     entry->hidden = 1;
     hidden_used++;
-    size_cache_forget(entry->original_path);
+    gc_size_cache_forget(entry->original_path);
     gc_log("mount switch hidden title=%s original=%s hidden=%s",
            op->title_id, entry->original_path, entry->hidden_path);
     if(gc_cancel_requested(err, err_size)) goto done;
@@ -4890,7 +4703,7 @@ mount_switch_delete_hidden_source(gc_operation_t *op,
                                        op ? op->title_id : "",
                                        entry->original_path,
                                        entry->hidden_path, "deleted");
-    size_cache_forget(entry->original_path);
+    gc_size_cache_forget(entry->original_path);
     gc_log("mount switch deleted hidden source title=%s original=%s hidden=%s",
            op ? op->title_id : "", entry->original_path, entry->hidden_path);
     return 0;
@@ -5087,7 +4900,7 @@ preserve_original_source_after_success(gc_operation_t *op,
            "%s", game->source_path);
   snprintf(op->preserved_hidden_path, sizeof(op->preserved_hidden_path),
            "%s", hidden_path);
-  size_cache_forget(game->source_path);
+  gc_size_cache_forget(game->source_path);
   artifact_cache_invalidate();
   gc_log("compress preserved original title=%s original=%s hidden=%s from=%s",
          op->title_id, game->source_path, hidden_path, rename_from);
@@ -5170,7 +4983,7 @@ run_move_op(gc_operation_t *op) {
       return -1;
     }
     game.required_bytes = game.source_size;
-    size_cache_store(game.source_path, game.source_size);
+    gc_size_cache_store(game.source_path, game.source_size);
   }
   if(close_title_if_running(op->title_id, err, sizeof(err)) != 0) {
     snprintf(op->error, sizeof(op->error), "%s",
@@ -5275,7 +5088,7 @@ run_move_op(gc_operation_t *op) {
     return -1;
   }
   if(game.source_kind == GC_SOURCE_FOLDER) {
-    size_cache_store(target_path, game.source_size);
+    gc_size_cache_store(target_path, game.source_size);
   }
   if(copy_only && game.source_kind == GC_SOURCE_COMPRESSED) {
     (void)write_validation_marker_ex(
@@ -5519,7 +5332,7 @@ run_compress_op(gc_operation_t *op) {
       game.extra_needed = game.free_bytes >= game.required_bytes
           ? 0 : game.required_bytes - game.free_bytes;
     }
-    size_cache_store(game.source_path, info.scan_bytes);
+    gc_size_cache_store(game.source_path, info.scan_bytes);
     gc_log("compress scan title=%s storage=%s workers=%llu bytes=%llu files=%llu dirs=%llu entries=%llu elapsedMs=%llu path=%s",
            op->title_id, storage_name_for_path(game.source_path),
            (unsigned long long)info.scan_workers,
@@ -6113,7 +5926,7 @@ run_uncompress_op(gc_operation_t *op) {
                                                   err, sizeof(err)) != 0) {
     return -1;
   }
-  size_cache_queue_measure(info.output_path);
+  gc_size_cache_queue_measure(info.output_path);
   snprintf(op->result, sizeof(op->result), "%s", "success");
   gc_log("uncompress complete title=%s output=%s mode=%s",
          op->title_id, op->output_path, as_image ? "image" : "app");
@@ -6926,8 +6739,8 @@ run_delete_game_data_op(gc_operation_t *op) {
       return -1;
     }
     physical_delete_path = delete_path;
-    size_cache_forget(game.source_path);
-    size_cache_forget(delete_path);
+    gc_size_cache_forget(game.source_path);
+    gc_size_cache_forget(delete_path);
     artifact_cache_invalidate();
     job_set_phase("mounting", 0, 0, "Requesting ShadowMount scan");
     if(gc_shadowmount_request_scan_cancelable(scan_err, sizeof(scan_err)) != 0) {
@@ -6953,8 +6766,8 @@ run_delete_game_data_op(gc_operation_t *op) {
            op->error);
     return -1;
   }
-  size_cache_forget(game.source_path);
-  if(delete_path[0]) size_cache_forget(delete_path);
+  gc_size_cache_forget(game.source_path);
+  if(delete_path[0]) gc_size_cache_forget(delete_path);
   artifact_cache_invalidate();
 
   gc_checkpoint("delete request shadowmount scan");
@@ -7820,8 +7633,10 @@ append_game_summary(json_buf_t *b, int *first, const gc_game_t *game,
   if(!*first && json_append(b, ",") != 0) return -1;
   char instance_id[128];
   game_instance_id(game, instance_id, sizeof(instance_id));
-  uint64_t stream_min = stream_min_free_bytes(game->source_size);
-  uint64_t stream_extra = stream_extra_needed(game);
+  uint64_t stream_min = game->size_estimated
+      ? 0
+      : stream_min_free_bytes(game->source_size);
+  uint64_t stream_extra = game->size_estimated ? 0 : stream_extra_needed(game);
   int can_move_to_external = game->source_kind != GC_SOURCE_UNKNOWN &&
       can_move_to_external_storage(game->source_path);
   if(json_append(b, "{\"titleId\":") != 0 ||
@@ -7853,6 +7668,10 @@ append_game_summary(json_buf_t *b, int *first, const gc_game_t *game,
                   "\"compressedSize\":%llu,"
                   "\"savedBytes\":%llu,"
                   "\"sizePending\":%s,"
+                  "\"sizeStatus\":\"%s\","
+                  "\"sizeEstimated\":%s,"
+                  "\"sizeMeasuredAt\":%llu,"
+                  "\"sizeRefreshing\":%s,"
                   "\"canStreamDelete\":%s,\"isMounted\":%s,"
                   "\"hasIcon\":%s,"
                   "\"iconSize\":%llu,\"iconMtime\":%llu,"
@@ -7868,6 +7687,10 @@ append_game_summary(json_buf_t *b, int *first, const gc_game_t *game,
                   (unsigned long long)game->compressed_size,
                   (unsigned long long)game->saved_bytes,
                   game->size_pending ? "true" : "false",
+                  gc_size_status_name(game->size_status),
+                  game->size_estimated ? "true" : "false",
+                  (unsigned long long)game->size_measured_at,
+                  game->size_refreshing ? "true" : "false",
                   game->can_stream_delete ? "true" : "false",
                   game->is_mounted ? "true" : "false",
                   game->has_icon ? "true" : "false",
@@ -7922,7 +7745,11 @@ operation_fallback_game(const gc_operation_t *op, gc_game_t *game) {
   snprintf(game->output_path, sizeof(game->output_path), "%s",
            op->output_path);
   set_game_mount_status(game, 0, "working");
-  populate_game_size_ex(game, 1, op->status == GC_OP_RUNNING);
+  /*
+   * This function runs while rendering /api/gc/games. Even fallback rows for
+   * active operations must not recursively measure folders.
+   */
+  populate_game_size_ex(game, 0, 0);
   game->can_stream_delete =
       game->source_kind == GC_SOURCE_FOLDER ||
       game->source_kind == GC_SOURCE_COMPRESSED;
@@ -8084,6 +7911,10 @@ games_request(const http_request_t *req) {
   int failed = 0;
   if(!games) return serve_error(req, 500, "out of memory");
   discover_games(games, GC_MAX_GAMES, &count, 0);
+  queue_folder_game_size_rechecks(games, count);
+  for(size_t i = 0; i < count; i++) {
+    size_cache_apply_display_to_game(&games[i]);
+  }
 
   json_buf_t b = {0};
   if(json_append(&b, "{\"ok\":true,\"games\":[") != 0) {
@@ -8144,6 +7975,66 @@ games_request(const http_request_t *req) {
   int rc = serve_owned(req, 200, b.data, b.len);
   free(games);
   return rc;
+}
+
+static int
+size_priority_request(const http_request_t *req) {
+  if(strcmp(req->method, "POST")) {
+    return serve_error(req, 405, "method not allowed");
+  }
+  char path[1024] = {0};
+  if(!websrv_get_query_arg(req, "path", path, sizeof(path)) &&
+     !websrv_get_query_arg(req, "sourcePath", path, sizeof(path))) {
+    return serve_error(req, 400, "path required");
+  }
+  if(!path_is_safe(path)) {
+    return serve_error(req, 400, "bad path");
+  }
+
+  gc_game_t *games = calloc(GC_MAX_GAMES, sizeof(*games));
+  size_t count = 0;
+  int known = 0;
+  if(!games) return serve_error(req, 500, "out of memory");
+  discover_games(games, GC_MAX_GAMES, &count, 0);
+  for(size_t i = 0; i < count; i++) {
+    if(games[i].source_kind == GC_SOURCE_FOLDER &&
+       game_source_matches(&games[i], path)) {
+      snprintf(path, sizeof(path), "%s", games[i].source_path);
+      known = 1;
+      break;
+    }
+  }
+  free(games);
+  if(!known) {
+    return serve_error(req, 404, "folder game not found");
+  }
+
+  gc_size_status_t status = gc_size_cache_priority(path);
+  uint64_t size = 0;
+  time_t measured_at = 0;
+  gc_size_status_t refreshed_status = status;
+  int has_size = gc_size_cache_lookup(path, &size, &measured_at,
+                                   &refreshed_status) == 0;
+  if(refreshed_status != GC_SIZE_STATUS_UNKNOWN) status = refreshed_status;
+
+  json_buf_t b = {0};
+  if(json_append(&b, "{\"ok\":true,\"path\":") != 0 ||
+     json_string(&b, path) != 0 ||
+     json_appendf(&b,
+                  ",\"sourceSize\":%llu,"
+                  "\"sizeStatus\":\"%s\","
+                  "\"sizeEstimated\":%s,"
+                  "\"sizeMeasuredAt\":%llu,"
+                  "\"sizeRefreshing\":%s}",
+                  has_size ? (unsigned long long)size : 0ULL,
+                  gc_size_status_name(status),
+                  has_size ? "true" : "false",
+                  (unsigned long long)(measured_at > 0 ? measured_at : 0),
+                  status == GC_SIZE_STATUS_REFRESHING ? "true" : "false") != 0) {
+    free(b.data);
+    return -1;
+  }
+  return serve_owned(req, 200, b.data, b.len);
 }
 
 static int
@@ -8702,6 +8593,9 @@ int
 gc_api_request(const http_request_t *req, const char *url) {
   (void)url;
   if(!strcmp(req->path, "/api/gc/games")) return games_request(req);
+  if(!strcmp(req->path, "/api/gc/size-priority")) {
+    return size_priority_request(req);
+  }
   if(!strcmp(req->path, "/api/gc/usb")) return usb_request(req);
   if(!strcmp(req->path, "/api/gc/uncompress-plan")) {
     return uncompress_plan_request(req);

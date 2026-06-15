@@ -109,9 +109,6 @@
 #define PFSC_WINDOW_BLOCKS \
   (PFSC_WINDOW_BLOCKS_PER_LANE * (uint64_t)PFSC_WINDOW_LANES)
 #define PFSC_WINDOW_COMP_CHUNK_BLOCKS 1U
-#define PFSC_INCOMPRESSIBLE_SAMPLE_BYTES 1024U
-#define PFSC_COMPRESSIBLE_UNIQUE_MAX 24U
-#define PFSC_COMPRESSIBLE_FREQ_MIN 384U
 
 #define EXFAT_SECTOR_SIZE 512ULL
 #define EXFAT_SECTORS_PER_CLUSTER 128ULL
@@ -323,7 +320,6 @@ typedef struct pfsc_comp_config {
   int zlib_level;
   int threshold_gain;
   int force_raw_exec;
-  int entropy_skip;
   int fast_deflate;
   int raw_only;
   mz_uint miniz_flags;
@@ -2776,23 +2772,8 @@ scan_push(scan_list_t *list, const char *abs, const char *rel, uint64_t size) {
 }
 
 static int
-scan_path_under_prefix(const char *path, const char *prefix) {
-  size_t n = strlen(prefix ? prefix : "");
-  return path && prefix && !strncmp(path, prefix, n) &&
-         (path[n] == 0 || path[n] == '/');
-}
-
-static int
 scan_default_workers_for_root(const char *root) {
-  if(scan_path_under_prefix(root, "/mnt/ext0") ||
-     scan_path_under_prefix(root, "/mnt/ext1")) {
-    return 4;
-  }
-  for(int i = 0; i <= 7; i++) {
-    char prefix[16];
-    snprintf(prefix, sizeof(prefix), "/mnt/usb%d", i);
-    if(scan_path_under_prefix(root, prefix)) return 4;
-  }
+  (void)root;
   return 2;
 }
 
@@ -3275,6 +3256,8 @@ scan_collect(const char *root, const char *rel, scan_list_t *files,
              scan_stats_t *stats, char *err, size_t err_size) {
   int workers = scan_default_workers_for_root(root);
   int rc;
+  PFSC_WINDOW_LOG("compression scan start root=%s rel=%s workers=%d",
+                  root ? root : "", rel ? rel : "", workers);
   if(stats) memset(stats, 0, sizeof(*stats));
   if(workers > 1) {
     rc = scan_collect_parallel(root, rel, files, stats, workers, err, err_size);
@@ -5129,24 +5112,6 @@ pfsc_compressed_block_meets_gain(size_t comp_len, int threshold_gain) {
          ((uint64_t)PFS_BLOCK_SIZE * (uint64_t)threshold_gain);
 }
 
-static int
-pfsc_block_likely_compressible(const unsigned char *raw) {
-  uint16_t hist[256];
-  memset(hist, 0, sizeof(hist));
-  const size_t samples = PFSC_INCOMPRESSIBLE_SAMPLE_BYTES;
-  const size_t step = (size_t)PFS_BLOCK_SIZE / samples;
-  unsigned unique = 0;
-  unsigned max_freq = 0;
-  for(size_t i = 0; i < samples; i++) {
-    unsigned v = raw[i * step];
-    uint16_t n = ++hist[v];
-    if(n == 1) unique++;
-    if(n > max_freq) max_freq = n;
-  }
-  return unique <= PFSC_COMPRESSIBLE_UNIQUE_MAX ||
-         max_freq >= PFSC_COMPRESSIBLE_FREQ_MIN;
-}
-
 static size_t
 pfsc_compress_block_smaller(const unsigned char *raw, unsigned char *out,
                             const pfsc_comp_config_t *config,
@@ -5233,10 +5198,6 @@ pfsc_worker_main(void *arg) {
       slot->comp_len = 0;
       atomic_fetch_add(&g_job.skipped_zlib_blocks, 1);
     } else if(pool->comp_config.raw_only) {
-      slot->comp_len = 0;
-      atomic_fetch_add(&g_job.skipped_zlib_blocks, 1);
-    } else if(pool->comp_config.entropy_skip &&
-              !pfsc_block_likely_compressible(slot->raw)) {
       slot->comp_len = 0;
       atomic_fetch_add(&g_job.skipped_zlib_blocks, 1);
     } else {
@@ -5570,11 +5531,6 @@ pfsc_window_compress_task(pfsc_window_pool_t *pool, pfsc_window_task_t *task,
       result->compressed = 0;
       atomic_fetch_add(&g_job.skipped_zlib_blocks, 1);
     } else if(config && config->raw_only) {
-      result->stored_len = (uint32_t)PFS_BLOCK_SIZE;
-      result->compressed = 0;
-      atomic_fetch_add(&g_job.skipped_zlib_blocks, 1);
-    } else if(config && config->entropy_skip &&
-              !pfsc_block_likely_compressible(raw)) {
       result->stored_len = (uint32_t)PFS_BLOCK_SIZE;
       result->compressed = 0;
       atomic_fetch_add(&g_job.skipped_zlib_blocks, 1);
@@ -6222,7 +6178,6 @@ compress_nested_to_pfsc_windowed(int fd, uint64_t file_start,
         0 : GC_PFSC_THRESHOLD_GAIN,
     .force_raw_exec = profile == PFS_COMPRESS_PROFILE_FAST ?
         1 : GC_PFSC_FORCE_RAW_EXEC,
-    .entropy_skip = profile == PFS_COMPRESS_PROFILE_FAST,
     .fast_deflate = profile == PFS_COMPRESS_PROFILE_FAST,
     .raw_only = 0,
     .miniz_flags = tdefl_create_comp_flags_from_zip_params(
@@ -6295,14 +6250,14 @@ compress_nested_to_pfsc_windowed(int fd, uint64_t file_start,
   snprintf(label, sizeof(label), "Compressing %s",
            nested_name && nested_name[0] ? nested_name : "nested image");
   job_set_current(label);
-  PFSC_WINDOW_LOG("pfsc window start blocks=%llu lanes=%d laneBytes=%llu workers=%d readPermits=%d writePermits=%d profile=%d zlibLevel=%d thresholdGain=%d fastDeflate=%d rawOnly=%d entropySkip=%d",
+  PFSC_WINDOW_LOG("pfsc window start blocks=%llu lanes=%d laneBytes=%llu workers=%d readPermits=%d writePermits=%d profile=%d zlibLevel=%d thresholdGain=%d fastDeflate=%d rawOnly=%d",
                   (unsigned long long)block_count, PFSC_WINDOW_LANES,
                   (unsigned long long)PFSC_WINDOW_LANE_SIZE,
                   tuning.max_workers, tuning.read_permits,
                   tuning.write_permits, comp_config.profile,
                   comp_config.zlib_level, comp_config.threshold_gain,
                   comp_config.fast_deflate,
-                  comp_config.raw_only, comp_config.entropy_skip);
+                  comp_config.raw_only);
   PFSC_WINDOW_LOG("pfsc window mode=ordered-commit ioPolicy=%s",
                   allow_io_overlap ? "pipelined" : "serial");
 
@@ -6474,7 +6429,6 @@ compress_nested_to_pfsc(int fd, uint64_t file_start, pfs_layout_t *nested,
         0 : GC_PFSC_THRESHOLD_GAIN,
     .force_raw_exec = profile == PFS_COMPRESS_PROFILE_FAST ?
         1 : GC_PFSC_FORCE_RAW_EXEC,
-    .entropy_skip = !delete_stream && profile == PFS_COMPRESS_PROFILE_FAST,
     .fast_deflate = profile == PFS_COMPRESS_PROFILE_FAST,
     .miniz_flags = tdefl_create_comp_flags_from_zip_params(
         PFSC_FAST_ZLIB_LEVEL, 15, MZ_DEFAULT_STRATEGY),
