@@ -1,6 +1,6 @@
-# Game Compressor 1.0.0
+# Game Compressor 0.9.7
 
-Game Compressor 1.0.0 is focused on stability, safer storage operations, and
+Game Compressor 0.9.7 is focused on stability, safer storage operations, and
 better handling of real PS5 setups with USB/external storage and duplicate title
 locations.
 
@@ -13,6 +13,9 @@ Compared against `v0.9.6`.
   not only the title ID.
 - Fixed ShadowMountPlus refresh/remount handling for duplicate or moved game
   instances.
+- Fixed validation progress, ETA, and speed reporting so validation and mounted
+  scan phases show more accurate status.
+- Fixed compression speed reporting and improved compression worker performance.
 - Improved USB/external compression and uncompression by safely pipelining
   read/write work only when source and destination are on different physical
   devices.
@@ -25,10 +28,11 @@ Compared against `v0.9.6`.
 - Improved operation history with source/output paths, target roots, saved
   space, scan summaries, repair details, and read-test metrics.
 - Improved PFSC compression/decompression internals, including parallel folder
-  scanning and windowed decompression with safe fallbacks.
+  scanning, faster compression workers, and windowed decompression with safe
+  fallbacks.
 - Polished the UI with clearer loading states, current-output indicators,
-  multiple-location labels, better USB target labels, and clearer progress
-  phases.
+  multiple-location labels, better USB target labels, clearer progress phases,
+  and better original-source keep/remove controls.
 
 ## Upgrade Notes
 
@@ -48,4 +52,3 @@ Compared against `v0.9.6`.
   ShadowMountPlus config and manual-list files.
 
 See `CHANGELOG.md` for the full detailed change list.
-

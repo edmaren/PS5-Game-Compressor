@@ -1,11 +1,11 @@
 # Changelog
 
-## 1.0.0 - 2026-06-15
+## 0.9.7 - 2026-06-15
 
-Compared local `UIPolish` (`a906b2d`) against `main` / `v0.9.6`
+Compared local `UIPolish` (`f87cdaf`) against `main` / `v0.9.6`
 (`cb1a344`).
 
-Full release notes: [RELEASE_NOTES_1.0.0.md](RELEASE_NOTES_1.0.0.md).
+Full release notes: [RELEASE_NOTES_0.9.7.md](RELEASE_NOTES_0.9.7.md).
 
 ### Fixed
 
@@ -19,6 +19,10 @@ Full release notes: [RELEASE_NOTES_1.0.0.md](RELEASE_NOTES_1.0.0.md).
 - Fixed USB compression and uncompression throughput cases by allowing
   simultaneous read/write work only when source and destination are confirmed to
   be on different physical devices.
+- Fixed validation progress percentages, ETA, and speed reporting for validation
+  and mounted scan phases.
+- Fixed compression speed reporting and improved compression worker throughput
+  by reusing zlib compressor state per worker.
 - Fixed destructive and delete workflows so cancel buttons are disabled once
   cancellation would leave data in an unsafe state.
 - Fixed cache and artifact state after compression, uncompression, move/copy,
@@ -45,6 +49,8 @@ Full release notes: [RELEASE_NOTES_1.0.0.md](RELEASE_NOTES_1.0.0.md).
 - Added parallel folder scanning and windowed PFSC decompression paths with
   serial fallbacks when worker startup, memory, or same-device I/O policy does
   not allow pipelining.
+- Compression workers now reuse zlib stream state instead of reinitializing it
+  for each block, improving compression throughput.
 - Compression and decompression now use cancel-aware reads, writes, condition
   waits, and worker accounting so long operations respond more predictably before
   entering unsafe phases.
@@ -85,6 +91,9 @@ Full release notes: [RELEASE_NOTES_1.0.0.md](RELEASE_NOTES_1.0.0.md).
 - Progress cards now distinguish resolving, measuring, scanning, publishing,
   deleting, validating, mounting, compressing, uncompressing, reading, moving,
   and finalizing phases.
+- Compression and uncompression dialogs now keep original-source controls
+  visible, choose safer defaults when writing to another storage device, and mark
+  storage-mode choices as not needed when the original is being kept.
 
 ## 0.9.6 - 2026-06-12
 
