@@ -3567,6 +3567,29 @@
 	      };
 	    }
 
+	    function mountedValidationProgressInfo(job) {
+	      const count = Number((job && job.phaseCount) || 0);
+	      const step = Number((job && job.phaseStep) || 0);
+	      if (count <= 0) return { countable: false, percent: 0, scanned: 0, total: 0 };
+	      return {
+	        countable: true,
+	        percent: Math.max(0, Math.min(100, step / count * 100)),
+	        scanned: Math.max(0, Math.min(count, step)),
+	        total: count
+	      };
+	    }
+
+	    function operationProgressInfoForVisual(visual, job, op, g) {
+	      const current = String((job && job.current) || '').toLowerCase();
+	      if (current.indexOf('scanning mounted') !== -1) {
+	        return mountedValidationProgressInfo(job);
+	      }
+	      if (visual && visual.className === 'scanning') {
+	        return scanProgressInfo(job, op, g);
+	      }
+	      return null;
+	    }
+
 	    function operationScanSummary(op) {
 	      const scanned = Math.max(0, Number((op && op.scanBytes) || 0));
 	      if (!op || scanned <= 0) return '';
@@ -3711,9 +3734,7 @@
         const cancelDisabledReason = String((job && job.cancelDisabledReason) || '');
         const progress = progressTiming(job);
         const visual = operationVisual(g.activeOp, job);
-        const scanProgress = visual.className === 'scanning'
-          ? scanProgressInfo(job, g.activeOp, g)
-          : null;
+	        const scanProgress = operationProgressInfoForVisual(visual, job, g.activeOp, g);
         const displayPercent = scanProgress && scanProgress.countable
           ? scanProgress.percent
           : visualShowsPercent(visual, progress)
@@ -4172,9 +4193,7 @@
       const visual = g && g.activeOp
         ? operationVisual(g.activeOp, job)
         : { label: 'Running', className: 'run' };
-	      const scanProgress = visual.className === 'scanning'
-	        ? scanProgressInfo(job, g && g.activeOp, g)
-	        : null;
+	      const scanProgress = operationProgressInfoForVisual(visual, job, g && g.activeOp, g);
 	      const displayPercent = scanProgress && scanProgress.countable
 	        ? scanProgress.percent
 	        : visualShowsPercent(visual, progress)
