@@ -218,11 +218,6 @@
       font-size: 12px;
     }
 
-	    .row-storage {
-	      display: block;
-	      text-transform: lowercase;
-	    }
-
 	    .row-tags {
 	      display: flex;
 	      flex-wrap: wrap;
@@ -2439,8 +2434,10 @@
 
 	    function rowTagsHtml(g) {
 	      const tags = [];
+	      const storage = storageLabelForGame(g);
 	      const role = gameInstanceRole(g);
 	      const count = titleInstanceCount(g);
+	      if (storage) tags.push(storage);
 	      if (role) tags.push(role);
 	      if (count > 1) tags.push(count + ' locations');
 	      if (!tags.length) return '';
@@ -3350,8 +3347,7 @@
 	        '" data-id="' + escapeHtml(gameInstanceId(g)) + '">' +
 	        '<div class="thumb">' + gameIcon(g, false) + '</div>' +
 	        '<div class="row-main"><div class="row-title">' + escapeHtml(g.name || g.titleId) + '</div>' +
-	        '<div class="row-sub"><span>' + escapeHtml(g.titleId + ' -') + '</span>' +
-	        '<span class="row-storage">' + escapeHtml(smallLabel(storageLabelForGame(g))) + '</span></div>' +
+	        '<div class="row-sub"><span>' + escapeHtml(g.titleId) + '</span></div>' +
 	        rowTagsHtml(g) +
 	        '</div>' +
 	        statusChip(g) +
