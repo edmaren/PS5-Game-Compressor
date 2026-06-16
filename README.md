@@ -104,6 +104,15 @@ http://<PS5_IP>:5910/
 The app remembers the last game you viewed using a browser cookie, so reopening
 the UI returns to that title when it is still available.
 
+## Runtime Guidance
+
+Game Compressor should only be launched when you need to compress, validate,
+repair, move, or unpack games. After your games are compressed and you no longer
+need the web UI, it is preferred that Game Compressor is no longer running.
+
+Turn it off from Payload Manager by stopping `payload.elf`, or remove Game
+Compressor from your autoloader and restart the console.
+
 ## Runtime Paths
 
 Persistent validation markers:
