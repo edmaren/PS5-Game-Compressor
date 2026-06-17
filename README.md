@@ -1,37 +1,45 @@
 # PS5 Game Compressor
 
-Standalone PS5 payload for compressing, unpacking, validating, and repairing
-ShadowMountPlus-mounted games from a simple web UI.
+Standalone PS5 payload for compressing, unpacking, validating, repairing, and
+moving ShadowMountPlus-mounted games from a simple web UI.
 
-Game Compressor is built for homebrew/debug workflows where games are already
-mounted through ShadowMountPlus. It does not include a file browser. Instead, it
-discovers titles from ShadowMountPlus tracker links under:
+Game Compressor is made for the day-to-day workflow after your games are already
+mounted through ShadowMountPlus: pick a title, choose an action, and let the PS5
+do the work. The app keeps long operations running on the console even if the
+browser window is closed.
 
-```text
-/user/app/<TITLE_ID>/mount.lnk
-/user/app/<TITLE_ID>/mount_img.lnk
-```
+## Main Features
 
-## What It Does
-
-- Compresses mounted game folders or images into FF-PFSC output.
-- Supports PFS and exFAT compression output choices.
-- Builds APR Emu `ampr_emu.index` files on the PS5 before compressing APR
-  titles, using the same indexing work as the manual `build_ampr_index.py`
-  script.
-- Provides a `Build AMPR Index` action for folder titles when you only want to
-  refresh the APR index.
-- Validates compressed PFSC games and records persistent validation markers.
-- Repairs detected PFSC block issues when possible.
-- Unpacks compressed games back to app form.
-- Moves supported titles between internal storage and USB storage.
-- Shows operation progress, speed, estimated remaining time, and history.
-- Keeps operations running on the payload even if the browser tab closes.
-- Installs or refreshes a PS5 home-screen web launcher tile:
+- Compress mounted game folders or images into FF-PFSC output.
+- Choose PFS or exFAT output when compressing.
+- Automatically build APR Emu `ampr_emu.index` before compressing APR titles.
+- Manually run `Build AMPR Index` on a folder when you only want to refresh the
+  APR index.
+- Validate compressed games and repair detected PFSC block issues when possible.
+- Uncompress compressed games back to folder/app form.
+- Move supported titles between internal storage and USB storage.
+- Track progress, speed, estimated remaining time, and operation history.
+- Keep operations running on the PS5 even if the browser tab closes.
+- Install or refresh a PS5 home-screen launcher tile:
 
 ```text
 Game Compressor / PSGC50001 -> http://127.0.0.1:5910/
 ```
+
+The PS5 home-screen tile opens the Game Compressor web UI in the browser. It is
+not the compression worker itself. Compression, validation, repair, move, and
+uncompress jobs continue on the PS5 if you close the browser window or reopen
+the tile later.
+
+## APR Emu Support
+
+For titles that use APR Emu, Game Compressor handles the APR index during the
+pre-compress scan. It rebuilds `ampr_emu.index` on the PS5 and includes that
+generated index in the compressed output, so users do not need to run the manual
+`build_ampr_index.py` script before compression.
+
+Non-APR titles keep the normal compression path. When APR indexing is performed,
+the selected game screen and operation history show `APR indexed`.
 
 ## Requirements
 
@@ -110,11 +118,10 @@ http://<PS5_IP>:5910/
 The app remembers the last game you viewed using a browser cookie, so reopening
 the UI returns to that title when it is still available.
 
-APR Emu titles are indexed automatically before compression. Game Compressor
-rebuilds `ampr_emu.index` on the PS5 and includes that generated index in the
-compressed output. Non-APR titles keep the normal compression path.
+If you close the browser window during an operation, open the Game Compressor
+tile again or go back to `http://<PS5_IP>:5910/` to see the current job.
 
-## Runtime Guidance
+## When You Are Done
 
 Game Compressor should only be launched when you need to compress, validate,
 repair, move, or unpack games. After your games are compressed and you no longer
@@ -124,48 +131,11 @@ Use the terminate button in the top bar when you are done. Game Compressor
 removes its home-screen tile, stops the payload, and leaves a final screen
 telling you to exit the browser window.
 
-You can also turn it off from Payload Manager by stopping `payload.elf`, or
-remove Game Compressor from your autoloader and restart the console.
-
-## Runtime Paths
-
-Persistent validation markers:
-
-```text
-/data/GameCompressor/validations
-```
-
-Repair workspace:
-
-```text
-/data/GameCompressor/logs/repair
-```
-
-Launcher marker:
-
-```text
-/data/GameCompressor/launcher.ok
-```
-
-Compatibility shutdown endpoint:
-
-```text
-GET /api/control/shutdown
-```
-
-APR index path inside APR Emu game folders:
-
-```text
-ampr_emu.index
-```
-
 ## Notes
 
 - Launcher installation is nonfatal. If it fails, the web UI can still be used
   directly from `http://<PS5_IP>:5910/`.
 - Payload operations are owned by the PS5-side worker, not the browser tab.
-- Server-side notifications are sent on completion when supported by the
-  runtime environment.
 - Compression and repair workflows can take a long time on large titles.
 
 ## Credits
@@ -178,6 +148,12 @@ Built on and inspired by work from:
 
 - [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS)
 - [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus)
+- [drakmor/ampr_emu](https://github.com/drakmor/ampr_emu) by Drakmor, owner of
+  the APR Emu project this release integrates with.
+- The builder of the manual `build_ampr_index.py` script and the APR Emu
+  community workflow for generating `ampr_emu.index` files. Game Compressor's
+  PS5-side index builder mirrors that workflow so users do not need to run the
+  Python script separately before compression.
 
 Made with love in Palestine.
 
