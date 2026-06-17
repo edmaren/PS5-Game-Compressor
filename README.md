@@ -168,13 +168,10 @@ Tested by Osama Abualia.
 Built on and inspired by work from:
 
 - [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS)
-- [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus)
-- [drakmor/ampr_emu](https://github.com/drakmor/ampr_emu) by Drakmor, owner of
-  the APR Emu project this release integrates with.
-- The builder of the manual `build_ampr_index.py` script and the APR Emu
-  community workflow for generating `ampr_emu.index` files. Game Compressor's
-  PS5-side index builder mirrors that workflow so users do not need to run the
-  Python script separately before compression.
+- Drakmor's [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus),
+  [APR Emu](https://github.com/drakmor/ampr_emu), and `build_ampr_index.py`
+  work, which Game Compressor builds on for mounted-title support and PS5-side
+  `ampr_emu.index` generation.
 
 Made with love in Palestine.
 
