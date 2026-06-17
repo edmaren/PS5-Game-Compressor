@@ -121,6 +121,25 @@ the UI returns to that title when it is still available.
 If you close the browser window during an operation, open the Game Compressor
 tile again or go back to `http://<PS5_IP>:5910/` to see the current job.
 
+## Game Discovery
+
+Mounted games are shown automatically. Game Compressor also scans known game
+storage folders, including:
+
+```text
+/data/homebrew
+/data/etaHEN/games
+/mnt/ext0
+/mnt/ext0/homebrew
+/mnt/ext0/etaHEN/games
+/mnt/ext1
+/mnt/ext1/homebrew
+/mnt/ext1/etaHEN/games
+/mnt/usb0 through /mnt/usb7
+/mnt/usb0/homebrew through /mnt/usb7/homebrew
+/mnt/usb0/etaHEN/games through /mnt/usb7/etaHEN/games
+```
+
 ## When You Are Done
 
 Game Compressor should only be launched when you need to compress, validate,
