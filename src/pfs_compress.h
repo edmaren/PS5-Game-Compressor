@@ -107,6 +107,10 @@ int pfs_compress_execute_prepared_to_ffpfsc(pfs_compress_plan_t *plan,
                                             char *err, size_t err_size);
 void pfs_compress_plan_free(pfs_compress_plan_t *plan);
 
+int pfs_build_ampr_index_for_folder(const char *path,
+                                    pfs_app_info_t *info,
+                                    char *err, size_t err_size);
+
 int pfs_decompress_probe(const char *path, pfs_decompress_info_t *info,
                          char *err, size_t err_size);
 

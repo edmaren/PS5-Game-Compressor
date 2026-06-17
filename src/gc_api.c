@@ -138,6 +138,7 @@ typedef enum gc_action {
   GC_ACTION_REFRESH_MOUNT,
   GC_ACTION_DELETE_GAME_DATA,
   GC_ACTION_READ_SPEED_TEST,
+  GC_ACTION_BUILD_AMPR_INDEX,
 } gc_action_t;
 
 typedef enum gc_op_status {
@@ -333,6 +334,7 @@ action_name(gc_action_t action) {
   if(action == GC_ACTION_REFRESH_MOUNT) return "refresh-mount";
   if(action == GC_ACTION_DELETE_GAME_DATA) return "delete-game-data";
   if(action == GC_ACTION_READ_SPEED_TEST) return "read-speed-test";
+  if(action == GC_ACTION_BUILD_AMPR_INDEX) return "build-ampr-index";
   return "unknown";
 }
 
@@ -3544,6 +3546,33 @@ delete_source_after_success(const char *path, gc_source_kind_t kind,
   return 0;
 }
 
+static void
+delete_vhash_sidecar_if_present(const char *path, const char *context,
+                                const char *title_id) {
+  char sidecar[PATH_MAX];
+  if(!path || !path[0]) return;
+  if(pfs_vhash_sidecar_path(path, sidecar, sizeof(sidecar)) != 0) return;
+  if(unlink(sidecar) == 0) {
+    gc_log("%s removed validation hash title=%s path=%s",
+           context ? context : "cleanup", title_id ? title_id : "", sidecar);
+  } else if(errno != ENOENT) {
+    gc_log("%s could not remove validation hash title=%s path=%s err=%s",
+           context ? context : "cleanup", title_id ? title_id : "", sidecar,
+           strerror(errno));
+  }
+}
+
+static int
+delete_source_after_success_with_title(const char *path, gc_source_kind_t kind,
+                                       const char *title_id,
+                                       char *err, size_t err_size) {
+  int rc = delete_source_after_success(path, kind, err, err_size);
+  if(rc == 0 && kind != GC_SOURCE_FOLDER) {
+    delete_vhash_sidecar_if_present(path, "delete source", title_id);
+  }
+  return rc;
+}
+
 static int
 game_source_delete_allowed(const gc_game_t *game) {
   if(!game || game->source_kind == GC_SOURCE_UNKNOWN ||
@@ -3767,6 +3796,7 @@ cleanup_failed_safe_compress_output(const char *path, const char *title_id) {
   if(unlink(path) == 0 || errno == ENOENT) {
     gc_log("compress cleanup removed output title=%s path=%s",
            title_id ? title_id : "", path);
+    delete_vhash_sidecar_if_present(path, "compress cleanup", title_id);
   } else {
     gc_log("compress cleanup could not remove output title=%s path=%s err=%s",
            title_id ? title_id : "", path, strerror(errno));
@@ -5109,8 +5139,10 @@ mount_switch_delete_hidden_source(gc_operation_t *op,
                                             source_path)) {
       continue;
     }
-    if(delete_source_after_success(entry->hidden_path, entry->source_kind,
-                                   err, err_size) != 0) {
+    if(delete_source_after_success_with_title(entry->hidden_path,
+                                              entry->source_kind,
+                                              op ? op->title_id : "",
+                                              err, err_size) != 0) {
       return -1;
     }
     entry->hidden = 0;
@@ -5123,7 +5155,9 @@ mount_switch_delete_hidden_source(gc_operation_t *op,
            op ? op->title_id : "", entry->original_path, entry->hidden_path);
     return 0;
   }
-  return delete_source_after_success(source_path, source_kind, err, err_size);
+  return delete_source_after_success_with_title(source_path, source_kind,
+                                                op ? op->title_id : "",
+                                                err, err_size);
 }
 
 static int
@@ -5527,8 +5561,9 @@ run_move_op(gc_operation_t *op) {
   }
 
   gc_checkpoint("move delete source");
-  if(delete_source_after_success(game.source_path, game.source_kind,
-                                 err, sizeof(err)) != 0) {
+  if(delete_source_after_success_with_title(game.source_path, game.source_kind,
+                                            op->title_id, err,
+                                            sizeof(err)) != 0) {
     snprintf(op->error, sizeof(op->error), "%s", err);
     gc_log("move delete source failed title=%s err=%s", op->title_id,
            op->error);
@@ -7425,8 +7460,9 @@ run_delete_game_data_op(gc_operation_t *op) {
   } else {
     physical_delete_path = game.source_path;
   }
-  if(delete_source_after_success(physical_delete_path, game.source_kind,
-                                 err, sizeof(err)) != 0) {
+  if(delete_source_after_success_with_title(physical_delete_path,
+                                            game.source_kind, op->title_id,
+                                            err, sizeof(err)) != 0) {
     if(delete_path[0] && physical_delete_path == delete_path) {
       char detail[256];
       snprintf(detail, sizeof(detail), "%s; remaining path: %s",
@@ -7457,6 +7493,73 @@ run_delete_game_data_op(gc_operation_t *op) {
   snprintf(op->result, sizeof(op->result), "%s", "deleted");
   gc_log("delete complete title=%s path=%s", op->title_id,
          game.source_path);
+  return 0;
+}
+
+static int
+run_build_ampr_index_op(gc_operation_t *op) {
+  gc_game_t game = {0};
+  pfs_app_info_t info;
+  char err[256] = {0};
+
+  gc_checkpoint("build-ampr-index find game");
+  gc_log("build-ampr-index start op=%s title=%s", op->id, op->title_id);
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected source");
+  if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
+     game.source_kind == GC_SOURCE_UNKNOWN) {
+    snprintf(op->error, sizeof(op->error), "%s", "game folder is unavailable");
+    gc_log("build-ampr-index failed title=%s err=%s",
+           op->title_id, op->error);
+    return -1;
+  }
+  if(game.source_kind != GC_SOURCE_FOLDER) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             "AMPR index can only be built for a game folder");
+    gc_log("build-ampr-index denied title=%s sourceKind=%s path=%s",
+           op->title_id, source_kind_name(game.source_kind), game.source_path);
+    return -1;
+  }
+  if(gc_cancel_requested(err, sizeof(err))) {
+    snprintf(op->error, sizeof(op->error), "%s", err);
+    return -1;
+  }
+
+  snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
+  snprintf(op->output_path, sizeof(op->output_path), "%s/ampr_emu.index",
+           game.source_path);
+  snprintf(op->source_kind, sizeof(op->source_kind), "%s",
+           source_kind_name(game.source_kind));
+  snprintf(op->format, sizeof(op->format), "%s", "ampr");
+  snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "none");
+  job_set_target(op->output_path);
+
+  gc_checkpoint("build-ampr-index scanning");
+  append_operation_phase(op, "scanning");
+  job_set_phase("scanning", 0, 0, "Scanning app folder");
+  memset(&info, 0, sizeof(info));
+  if(pfs_build_ampr_index_for_folder(game.source_path, &info,
+                                     err, sizeof(err)) != 0) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             err[0] ? err : "AMPR index build failed");
+    gc_log("build-ampr-index failed title=%s err=%s",
+           op->title_id, op->error);
+    return -1;
+  }
+  operation_store_scan_stats(op, &info);
+  op->compression_source_size = info.scan_bytes;
+  struct stat st;
+  if(stat(op->output_path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
+    op->compressed_size = (uint64_t)st.st_size;
+  }
+  op->saved_bytes = 0;
+  op->apr_indexed = 1;
+  snprintf(op->result, sizeof(op->result), "%s", "indexed");
+  artifact_cache_invalidate();
+  gc_log("build-ampr-index complete title=%s output=%s bytes=%llu files=%llu",
+         op->title_id, op->output_path,
+         (unsigned long long)op->compressed_size,
+         (unsigned long long)info.scan_files);
   return 0;
 }
 
@@ -7509,6 +7612,8 @@ operation_thread(void *arg) {
     rc = run_delete_game_data_op(op);
 	  } else if(op->action == GC_ACTION_READ_SPEED_TEST) {
 	    rc = run_read_speed_test_op(op);
+	  } else if(op->action == GC_ACTION_BUILD_AMPR_INDEX) {
+	    rc = run_build_ampr_index_op(op);
 	  }
 
   int cancelled = job_cancelled();
@@ -8240,6 +8345,43 @@ enqueue_read_speed_test_action(const http_request_t *req) {
   snprintf(op->source_kind, sizeof(op->source_kind), "%s",
            source_kind_name_from_path(source_path_arg));
   snprintf(op->format, sizeof(op->format), "%s", "read");
+  snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "none");
+  return enqueue_start_response_locked(req, op);
+}
+
+static int
+enqueue_build_ampr_index_action(const http_request_t *req) {
+  char title_id[64];
+  char source_path_arg[1024] = "";
+  struct stat st;
+
+  if(strcmp(req->method, "POST")) {
+    return serve_error(req, 405, "method not allowed");
+  }
+  const char *arg_err = read_title_source_args(req, title_id,
+                                               sizeof(title_id),
+                                               source_path_arg,
+                                               sizeof(source_path_arg));
+  if(arg_err) return serve_error(req, 400, arg_err);
+  if(stat(source_path_arg, &st) != 0 || !S_ISDIR(st.st_mode)) {
+    return serve_error(req, 400,
+                       "AMPR index can only be built for a game folder");
+  }
+
+  if(title_operation_busy(title_id)) {
+    return serve_error(req, 409, "action already running for this game");
+  }
+
+  pthread_mutex_lock(&g_gc_lock);
+  int response = 0;
+  gc_operation_t *op = alloc_queued_operation_locked(
+      req, title_id, GC_ACTION_BUILD_AMPR_INDEX, title_id, &response);
+  if(!op) return response;
+  snprintf(op->source_path, sizeof(op->source_path), "%s", source_path_arg);
+  snprintf(op->output_path, sizeof(op->output_path), "%s/ampr_emu.index",
+           source_path_arg);
+  snprintf(op->source_kind, sizeof(op->source_kind), "%s", "folder");
+  snprintf(op->format, sizeof(op->format), "%s", "ampr");
   snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "none");
   return enqueue_start_response_locked(req, op);
 }
@@ -9402,6 +9544,9 @@ gc_api_request(const http_request_t *req, const char *url) {
   }
 	  if(!strcmp(req->path, "/api/gc/read-speed-test")) {
 	    return enqueue_read_speed_test_action(req);
+	  }
+	  if(!strcmp(req->path, "/api/gc/build-ampr-index")) {
+	    return enqueue_build_ampr_index_action(req);
 	  }
 	  return serve_error(req, 404, "not found");
 	}

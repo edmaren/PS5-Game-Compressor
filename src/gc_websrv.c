@@ -18,6 +18,7 @@
 #include <sys/socket.h>
 
 #include "asset.h"
+#include "gc_app_installer.h"
 #include "gc_api.h"
 #include "gc_json_escape.h"
 #include "websrv.h"
@@ -199,9 +200,23 @@ status_request(const http_request_t *req) {
 
 static int
 shutdown_request(const http_request_t *req) {
-  const char body[] = "{\"ok\":true,\"shutdown\":true}";
-  int rc = websrv_send(req->fd, 200, "application/json", body,
-                       sizeof(body) - 1);
+  char remove_tile[16];
+  int remove_tile_requested =
+      websrv_get_query_arg(req, "removeTile", remove_tile,
+                           sizeof(remove_tile)) &&
+      (!strcmp(remove_tile, "1") || !strcasecmp(remove_tile, "true"));
+  int remove_tile_rc = remove_tile_requested ? gc_launcher_remove() : 0;
+
+  char body[128];
+  int n = snprintf(body, sizeof(body),
+                   "{\"ok\":true,\"shutdown\":true,\"removeTile\":%s,"
+                   "\"removeTileRc\":%d}",
+                   remove_tile_requested ? "true" : "false",
+                   remove_tile_rc);
+  if(n < 0 || (size_t)n >= sizeof(body)) {
+    return websrv_send_error_json(req->fd, 500, "shutdown response too large");
+  }
+  int rc = websrv_send(req->fd, 200, "application/json", body, (size_t)n);
   websrv_request_exit();
   return rc;
 }
@@ -276,9 +291,10 @@ dispatch_request(const http_request_t *req) {
        !strcmp(req->path, "/api/gc/copy-to-usb") ||
 	       !strcmp(req->path, "/api/gc/copy-to-internal") ||
 	       !strcmp(req->path, "/api/gc/delete-game-data") ||
-	       !strcmp(req->path, "/api/gc/read-speed-test")) {
-	      return gc_api_request(req, req->path);
-	    }
+	       !strcmp(req->path, "/api/gc/read-speed-test") ||
+	       !strcmp(req->path, "/api/gc/build-ampr-index")) {
+      return gc_api_request(req, req->path);
+    }
     return websrv_send_error_json(req->fd, 404, "not found");
   }
 

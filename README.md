@@ -16,6 +16,11 @@ discovers titles from ShadowMountPlus tracker links under:
 
 - Compresses mounted game folders or images into FF-PFSC output.
 - Supports PFS and exFAT compression output choices.
+- Builds APR Emu `ampr_emu.index` files on the PS5 before compressing APR
+  titles, using the same indexing work as the manual `build_ampr_index.py`
+  script.
+- Provides a `Build AMPR Index` action for folder titles when you only want to
+  refresh the APR index.
 - Validates compressed PFSC games and records persistent validation markers.
 - Repairs detected PFSC block issues when possible.
 - Unpacks compressed games back to app form.
@@ -96,6 +101,7 @@ http://<PS5_IP>:5910/
    - Compressed titles show `Validate and Repair`.
 6. For compression, choose either `PFS` or `exFAT` when prompted.
 7. Use the secondary action menu for supported actions such as:
+   - `Build AMPR Index`
    - `Uncompress`
    - `Move to USB`
    - `Move to Internal SSD`
@@ -104,14 +110,22 @@ http://<PS5_IP>:5910/
 The app remembers the last game you viewed using a browser cookie, so reopening
 the UI returns to that title when it is still available.
 
+APR Emu titles are indexed automatically before compression. Game Compressor
+rebuilds `ampr_emu.index` on the PS5 and includes that generated index in the
+compressed output. Non-APR titles keep the normal compression path.
+
 ## Runtime Guidance
 
 Game Compressor should only be launched when you need to compress, validate,
 repair, move, or unpack games. After your games are compressed and you no longer
 need the web UI, it is preferred that Game Compressor is no longer running.
 
-Turn it off from Payload Manager by stopping `payload.elf`, or remove Game
-Compressor from your autoloader and restart the console.
+Use the terminate button in the top bar when you are done. Game Compressor
+removes its home-screen tile, stops the payload, and leaves a final screen
+telling you to exit the browser window.
+
+You can also turn it off from Payload Manager by stopping `payload.elf`, or
+remove Game Compressor from your autoloader and restart the console.
 
 ## Runtime Paths
 
@@ -137,6 +151,12 @@ Compatibility shutdown endpoint:
 
 ```text
 GET /api/control/shutdown
+```
+
+APR index path inside APR Emu game folders:
+
+```text
+ampr_emu.index
 ```
 
 ## Notes

@@ -66,6 +66,7 @@ typedef struct appinst_api {
 } appinst_api_t;
 
 static pthread_mutex_t g_launcher_start_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_launcher_install_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_launcher_started = 0;
 
 static const uint8_t g_install_marker[] = GC_INSTALL_MARKER;
@@ -171,6 +172,20 @@ static int
 mkdir_if_needed(const char *path) {
   if(mkdir(path, 0755) == 0) return 0;
   return errno == EEXIST ? 0 : -1;
+}
+
+static void
+unlink_if_exists(const char *path) {
+  if(unlink(path) != 0 && errno != ENOENT) {
+    gc_log("launcher remove unlink %s failed errno=%d", path, errno);
+  }
+}
+
+static void
+rmdir_if_exists(const char *path) {
+  if(rmdir(path) != 0 && errno != ENOENT) {
+    gc_log("launcher remove rmdir %s failed errno=%d", path, errno);
+  }
 }
 
 static int
@@ -372,14 +387,69 @@ gc_install_app_if_needed(void) {
   return 1;
 }
 
+int
+gc_launcher_remove(void) {
+  appinst_api_t api;
+  char app_dir[256];
+  char sce_sys_dir[256];
+  char param_path[256];
+  char icon_path[256];
+  int rc = 0;
+
+  pthread_mutex_lock(&g_launcher_install_lock);
+
+  init_ps5_services();
+  resolve_appinst(&api);
+
+  if(!api.initialize) {
+    gc_log("launcher remove AppInst initialize missing");
+    rc = -1;
+    goto out;
+  }
+
+  int err = api.initialize();
+  if(err) {
+    gc_log("launcher remove sceAppInstUtilInitialize failed rc=0x%08x",
+           (unsigned)err);
+    rc = -1;
+    goto out;
+  }
+
+  err = uninstall_launcher_title(&api, GAME_COMPRESSOR_LAUNCHER_TITLE_ID,
+                                 "Game Compressor tile");
+  if(err && err != -ENOSYS) {
+    rc = err;
+  }
+
+  snprintf(app_dir, sizeof(app_dir), GC_APP_ROOT "/%s",
+           GAME_COMPRESSOR_LAUNCHER_TITLE_ID);
+  snprintf(sce_sys_dir, sizeof(sce_sys_dir), "%s/sce_sys", app_dir);
+  snprintf(param_path, sizeof(param_path), "%s/param.json", sce_sys_dir);
+  snprintf(icon_path, sizeof(icon_path), "%s/icon0.png", sce_sys_dir);
+
+  unlink_if_exists(GC_MARKER_PATH);
+  unlink_if_exists(param_path);
+  unlink_if_exists(icon_path);
+  rmdir_if_exists(sce_sys_dir);
+  rmdir_if_exists(app_dir);
+
+  gc_log("launcher remove complete rc=0x%08x", (unsigned)rc);
+
+out:
+  pthread_mutex_unlock(&g_launcher_install_lock);
+  return rc;
+}
+
 static void *
 launcher_thread(void *arg) {
   (void)arg;
 
   gc_log("launcher started after web server");
-  init_ps5_services();
 
+  pthread_mutex_lock(&g_launcher_install_lock);
+  init_ps5_services();
   int app_install_status = gc_install_app_if_needed();
+  pthread_mutex_unlock(&g_launcher_install_lock);
   if(app_install_status >= 0) {
     gc_log("launcher ready rc=%d", app_install_status);
   } else {

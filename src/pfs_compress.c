@@ -98,6 +98,7 @@
 #define PFS_STREAM_DEFAULT_RESERVE_BYTES (128ULL * 1024ULL * 1024ULL)
 #define PFSC_WINDOW_RC_FALLBACK 1
 #define PFSC_WINDOW_MAX_WORKERS 16
+#define PFSC_WINDOW_SAME_DEVICE_MAX_WORKERS PFS_COMPRESS_DEFAULT_WORKERS
 #define PFSC_WINDOW_MIN_WORKERS 3
 #define PFSC_WINDOW_MIN_COMP_WORKERS 2
 #define PFSC_WINDOW_READ_PERMITS 1
@@ -3474,6 +3475,71 @@ done:
   return rc;
 }
 
+int
+pfs_build_ampr_index_for_folder(const char *path, pfs_app_info_t *info,
+                                char *err, size_t err_size) {
+  scan_list_t scans = {0};
+  scan_stats_t stats = {0};
+  ampr_index_entry_t *entries = NULL;
+  ampr_index_stats_t ampr_stats;
+  struct stat st;
+  int rc = -1;
+
+  if(info) memset(info, 0, sizeof(*info));
+  if(!path || !path[0]) {
+    set_err(err, err_size, "bad app folder path");
+    errno = EINVAL;
+    return -1;
+  }
+  if(stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+    set_err(err, err_size, "app folder is unavailable");
+    errno = ENOTDIR;
+    return -1;
+  }
+
+  job_set_current("Scanning app folder");
+  if(scan_collect(path, "", &scans, &stats, err, err_size) != 0) goto done;
+  if(scans.count == 0) {
+    set_err(err, err_size, "app folder contains no files");
+    goto done;
+  }
+
+  entries = calloc(scans.count, sizeof(*entries));
+  if(!entries) {
+    set_err(err, err_size, "out of memory");
+    errno = ENOMEM;
+    goto done;
+  }
+  for(size_t i = 0; i < scans.count; i++) {
+    entries[i].rel = scans.items[i].rel;
+    entries[i].size = scans.items[i].size;
+    entries[i].mtime = scans.items[i].mtime;
+  }
+
+  job_set_current("Building AMPR index");
+  if(ampr_index_build_from_entries(path, entries, scans.count, 0,
+                                   &ampr_stats, err, err_size) != 0) {
+    goto done;
+  }
+  if(info) {
+    scan_stats_to_info(info, &stats);
+    info->apr_indexed = 1;
+  }
+  PFSC_WINDOW_LOG("ampr index generated root=%s entries=%llu size=%llu hash_slots=%llu probed=%llu max_probe=%llu",
+                  path,
+                  (unsigned long long)ampr_stats.indexed_files,
+                  (unsigned long long)ampr_stats.output_size,
+                  (unsigned long long)ampr_stats.hash_slots,
+                  (unsigned long long)ampr_stats.probed_entries,
+                  (unsigned long long)ampr_stats.max_probe);
+  rc = 0;
+
+done:
+  free(entries);
+  free(scans.items);
+  return rc;
+}
+
 static int
 scan_file_cmp(const void *a, const void *b) {
   const scan_file_t *fa = a;
@@ -5487,12 +5553,18 @@ pfsc_window_clamp_int(int v, int lo, int hi) {
 }
 
 static int
-pfsc_window_worker_cap(int requested_workers) {
+pfsc_window_worker_cap(int requested_workers, int allow_io_overlap) {
+  int workers = requested_workers;
   if(requested_workers <= PFS_COMPRESS_DEFAULT_WORKERS) {
-    return PFSC_WINDOW_MAX_WORKERS;
+    workers = PFS_COMPRESS_DEFAULT_WORKERS;
+  } else {
+    workers = pfsc_window_clamp_int(requested_workers, PFSC_WINDOW_MIN_WORKERS,
+                                    PFSC_WINDOW_MAX_WORKERS);
   }
-  return pfsc_window_clamp_int(requested_workers, PFSC_WINDOW_MIN_WORKERS,
-                               PFSC_WINDOW_MAX_WORKERS);
+  if(!allow_io_overlap && workers > PFSC_WINDOW_SAME_DEVICE_MAX_WORKERS) {
+    workers = PFSC_WINDOW_SAME_DEVICE_MAX_WORKERS;
+  }
+  return workers;
 }
 
 static int
@@ -5509,9 +5581,11 @@ pfsc_window_comp_permits(const pfsc_window_tuning_t *tuning,
 }
 
 static void
-pfsc_window_tuning_init(pfsc_window_tuning_t *tuning, int requested_workers) {
+pfsc_window_tuning_init(pfsc_window_tuning_t *tuning, int requested_workers,
+                        int allow_io_overlap) {
   memset(tuning, 0, sizeof(*tuning));
-  tuning->max_workers = pfsc_window_worker_cap(requested_workers);
+  tuning->max_workers =
+      pfsc_window_worker_cap(requested_workers, allow_io_overlap);
   tuning->read_permits = PFSC_WINDOW_READ_PERMITS;
   tuning->write_permits = PFSC_WINDOW_WRITE_PERMITS;
 }
@@ -6459,7 +6533,7 @@ compress_nested_to_pfsc_windowed(int fd, uint64_t file_start,
     goto done;
   }
 
-  pfsc_window_tuning_init(&tuning, requested_workers);
+  pfsc_window_tuning_init(&tuning, requested_workers, allow_io_overlap);
   if(pfsc_window_pool_start(&pool, tuning.max_workers) != 0) {
     PFSC_WINDOW_LOG("pfsc window unavailable: start worker pool failed");
     rc = PFSC_WINDOW_RC_FALLBACK;

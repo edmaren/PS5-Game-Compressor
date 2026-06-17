@@ -67,6 +67,13 @@
         linear-gradient(145deg, #ffffff 0%, #f3f7ff 42%, #f8fbff 100%);
     }
 
+    .app.is-terminated {
+      grid-template-columns: 1fr;
+      place-items: center;
+      padding: 0;
+      gap: 0;
+    }
+
     .icon-btn {
       display: grid;
       place-items: center;
@@ -478,6 +485,52 @@
       font-weight: 600;
     }
 
+    .terminated-screen {
+      width: min(520px, calc(100% - 40px));
+      margin: auto;
+      padding: 34px 28px;
+      text-align: center;
+    }
+
+    .terminated-icon {
+      width: 168px;
+      height: 168px;
+      margin: 0 auto 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 46px;
+      border: 1px solid rgba(216, 76, 91, .24);
+      background: rgba(255, 240, 242, .92);
+      color: var(--danger);
+      box-shadow: 0 24px 60px rgba(216, 76, 91, .18);
+    }
+
+    .terminated-icon svg {
+      width: 82px;
+      height: 82px;
+      stroke: currentColor;
+      stroke-width: 2.15;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .terminated-title {
+      margin: 0 0 8px;
+      color: var(--text);
+      font-size: 24px;
+      line-height: 1.15;
+      font-weight: 780;
+    }
+
+    .terminated-copy {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+      font-weight: 650;
+    }
+
     .free-space-label {
       min-height: 38px;
       display: inline-flex;
@@ -515,6 +568,20 @@
     .icon-btn.is-danger:hover {
       color: var(--danger);
       border-color: rgba(216, 76, 91, .28);
+    }
+
+    .icon-btn.is-terminate-needed {
+      color: #ffffff;
+      border-color: rgba(216, 76, 91, .42);
+      background: var(--danger);
+      box-shadow: 0 14px 30px rgba(216, 76, 91, .26);
+    }
+
+    .icon-btn.is-terminate-needed:hover {
+      color: #ffffff;
+      border-color: rgba(216, 76, 91, .58);
+      background: #c83749;
+      box-shadow: 0 16px 34px rgba(216, 76, 91, .30);
     }
 
     .icon-btn:disabled {
@@ -1299,6 +1366,34 @@
       font-size: 12px;
     }
 
+    .profile-title-line {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .profile-risk-badge {
+      display: inline-flex;
+      align-items: center;
+      height: 18px;
+      padding: 0 7px;
+      border-radius: 999px;
+      border: 1px solid rgba(220, 38, 38, .26);
+      background: #fee2e2;
+      color: #b91c1c;
+      font-size: 10px;
+      font-weight: 760;
+      line-height: 1;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .profile-risk-meta {
+      color: #b91c1c;
+      font-weight: 650;
+    }
+
     .history-chips {
       display: flex;
       flex-wrap: wrap;
@@ -1817,8 +1912,11 @@
           </button>
           <button class="format-row" type="button" data-compress-profile="fast">
             <div>
-              <div class="history-title">Optimize for Speed</div>
-              <div class="history-meta">Fast baseline, quickest compression</div>
+              <div class="profile-title-line">
+                <div class="history-title">Optimize for Speed</div>
+                <span class="profile-risk-badge">Experimental</span>
+              </div>
+              <div class="history-meta profile-risk-meta">Fast compression may cause bugs in some games</div>
             </div>
             <span class="chip">Select</span>
           </button>
@@ -2000,6 +2098,7 @@
       gamesLoading: true,
       gamesLoaded: false,
       gamesError: '',
+      terminated: false,
       history: [],
       usb: [],
       job: null,
@@ -2213,6 +2312,10 @@
       return status === 'queued' || status === 'scanning' || status === 'refreshing';
     }
 
+    function jobIsBusy() {
+      return !!(state.job && state.job.busy);
+    }
+
     function startSizePollBurst(durationMs) {
       sizePollUntil = Date.now() + Math.max(5000, Number(durationMs || 15000));
       if (sizePollTimer) clearInterval(sizePollTimer);
@@ -2222,7 +2325,11 @@
           sizePollTimer = 0;
           return;
         }
-        refreshAll();
+        if (jobIsBusy()) {
+          refreshJob();
+        } else {
+          refreshAll();
+        }
       }, 1500);
     }
 
@@ -2332,6 +2439,12 @@
       }
       if (action === 'delete-game-data') {
         return { label: 'Deleting', className: 'deleting' };
+      }
+      if (action === 'build-ampr-index') {
+        if (phase === 'complete') {
+          return { label: 'APR Indexed', className: 'finalizing' };
+        }
+        return { label: 'Building APR Index', className: 'scanning' };
       }
       if (action === 'read-speed-test') {
         return { label: 'Testing Read Speed', className: 'reading' };
@@ -2524,6 +2637,43 @@
 	      return item && item.aprIndexed ? '<span class="chip ok">APR indexed</span>' : '';
 	    }
 
+	    function gameAprIndexedFromLastState(g) {
+	      if (!g || !Array.isArray(state.history)) return false;
+	      const titleId = String(g.titleId || '');
+	      const current = normalizedPath(g.sourcePath);
+	      const sourceKind = String(g.sourceKind || '').toLowerCase();
+	      if (!titleId || !current || sourceKind !== 'folder') return false;
+	      let latest = null;
+	      let latestTime = -1;
+	      for (const op of state.history) {
+	        if (!op) continue;
+	        if (String(op.titleId || '') !== titleId) continue;
+	        if (normalizedPath(op.sourcePath) !== current) continue;
+	        const action = String(op.action || '').toLowerCase();
+	        if (action !== 'build-ampr-index' &&
+	          action !== 'compress' &&
+	          action !== 'delete-game-data') {
+	          continue;
+	        }
+	        const time = operationTime(op);
+	        if (time >= latestTime) {
+	          latest = op;
+	          latestTime = time;
+	        }
+	      }
+	      if (!latest) return false;
+	      const action = String(latest.action || '').toLowerCase();
+	      const status = String(latest.status || '').toLowerCase();
+	      if (action === 'delete-game-data') return false;
+	      if (action === 'build-ampr-index') return status === 'success' && !!latest.aprIndexed;
+	      if (action === 'compress' && status === 'success') return !!latest.aprIndexed;
+	      return false;
+	    }
+
+	    function aprIndexedChipForGame(g) {
+	      return gameAprIndexedFromLastState(g) ? '<span class="chip ok">APR indexed</span>' : '';
+	    }
+
 	    function instanceRoleChip(g) {
 	      const role = gameInstanceRole(g);
 	      if (!role) return '';
@@ -2545,7 +2695,6 @@
 	      if (storage) tags.push(storage);
 	      if (role) tags.push(role);
 	      if (count > 1) tags.push(count + ' locations');
-	      if (g && g.aprIndexed) tags.push('APR indexed');
 	      if (!tags.length) return '';
 	      return '<div class="row-tags">' + tags.map((tag) => (
 	        '<span class="row-tag">' + escapeHtml(tag === 'APR indexed' ? tag : smallLabel(tag)) + '</span>'
@@ -3443,6 +3592,7 @@
       return [
 	        gameKey(g), actionFor(g), actionLabel(g),
 	        compressionResultKeyForGame(g),
+	        gameAprIndexedFromLastState(g),
 	        operationScanSummary((g && g.activeOp) || latestCompressionOperationForGame(g)),
 	        repairResultKeyForGame(g),
         g && g.activeOp && state.job && state.job.activeId === g.activeOp.id
@@ -3596,6 +3746,7 @@
       if (action === 'copy-to-usb') return 'Pending Copy to External Storage';
       if (action === 'copy-to-internal') return 'Pending Copy to Internal SSD';
       if (action === 'delete-game-data') return 'Pending Delete';
+      if (action === 'build-ampr-index') return 'Pending APR Index';
 	      if (action === 'read-speed-test') return 'Pending Read Speed Test';
 	      return 'Pending Operation';
 	    }
@@ -3884,6 +4035,9 @@
       if (!g || !g.sourcePath || g.activeOp || g.pendingOp || g.sourceKind === 'unknown') return [];
       const actions = [];
       const sourceKind = String(g.sourceKind || '').toLowerCase();
+      if (sourceKind === 'folder') {
+        actions.push({ id: 'build-ampr-index', label: 'Build AMPR Index' });
+      }
       if (sourceKind === 'compressed' || actionFor(g) === 'validate-repair') {
         actions.push({ id: 'validate-only', label: 'Validate Only' });
         actions.push({ id: 'uncompress', label: 'Uncompress' });
@@ -4166,6 +4320,8 @@
         showUncompressModal(g);
       } else if (action === 'extract-image') {
         startAction(g, false, 'extract-image');
+      } else if (action === 'build-ampr-index') {
+        startAction(g, false, 'build-ampr-index');
       } else if (action === 'move-usb') {
         showUsbModal(g, 'move');
       } else if (action === 'move-internal') {
@@ -4254,7 +4410,7 @@
 	        locationCountChip(g) +
 	        detailMountStateChip(g) +
         detailStatusChip(g) +
-	        aprIndexedChip(g) +
+	        aprIndexedChipForGame(g) +
 	        sizeChip(g) +
 	        savedChip(g) +
 	        badBlocksChip(g) +
@@ -4515,14 +4671,18 @@
 
     function showTerminateReminder() {
       const reminder = $('terminate-reminder');
+      const terminate = $('terminate-top');
       if (!reminder) return;
       reminder.classList.remove('hidden');
+      if (terminate) terminate.classList.add('is-terminate-needed');
     }
 
     function hideTerminateReminder() {
       const reminder = $('terminate-reminder');
+      const terminate = $('terminate-top');
       if (!reminder || reminder.classList.contains('hidden')) return;
       reminder.classList.add('hidden');
+      if (terminate) terminate.classList.remove('is-terminate-needed');
     }
 
     function maybeShowFinishedOperationReminder() {
@@ -4536,6 +4696,7 @@
     }
 
 	    async function refreshAll() {
+	      if (state.terminated) return;
 	      if (refreshAllInFlight) return;
 	      refreshAllInFlight = true;
 	      const previousBusy = !!(state.job && state.job.busy);
@@ -4602,6 +4763,7 @@
     }
 
     async function refreshJob() {
+      if (state.terminated) return;
       if (refreshJobInFlight) return;
       refreshJobInFlight = true;
       try {
@@ -4623,6 +4785,11 @@
           await refreshAll();
           return;
         }
+        if (nextBusy) {
+          updateProgressOnly();
+          renderHistory(false);
+          return;
+        }
         renderDetail(false);
         renderHistory(false);
         updateProgressOnly();
@@ -4634,6 +4801,7 @@
     }
 
     function startPollBurst(durationMs) {
+      if (state.terminated) return;
       pollBurstUntil = Date.now() + Math.max(1000, Number(durationMs || 5000));
       if (pollBurstTimer) clearInterval(pollBurstTimer);
       refreshAll();
@@ -5333,6 +5501,8 @@
         url = '/api/gc/extract-image?' + gameQuery(g);
       } else if (action === 'validate-only') {
         url = '/api/gc/validate-only?' + gameQuery(g);
+      } else if (action === 'build-ampr-index') {
+        url = '/api/gc/build-ampr-index?' + gameQuery(g);
       } else {
         url = '/api/gc/validate-repair?' + gameQuery(g);
       }
@@ -5408,6 +5578,48 @@
       await refreshAll();
     }
 
+    function requestShutdownAfterTerminate() {
+      const url = '/api/control/shutdown?removeTile=1&t=' + encodeURIComponent(Date.now());
+      const frame = document.createElement('iframe');
+      frame.hidden = true;
+      frame.setAttribute('aria-hidden', 'true');
+      frame.style.display = 'none';
+      frame.src = url;
+      document.body.appendChild(frame);
+      state.shutdownFrame = frame;
+      setTimeout(() => {
+        fetch(url, { method: 'POST', cache: 'no-store' }).catch(() => null);
+      }, 250);
+    }
+
+    function showTerminatedScreen() {
+      state.terminated = true;
+      if (pollBurstTimer) {
+        clearInterval(pollBurstTimer);
+        pollBurstTimer = 0;
+      }
+      if (sizePollTimer) {
+        clearInterval(sizePollTimer);
+        sizePollTimer = 0;
+      }
+      hideTerminateReminder();
+      const btn = $('terminate-top');
+      if (btn) {
+        btn.disabled = true;
+        btn.title = 'Game Compressor terminated';
+        btn.classList.remove('is-terminate-needed');
+      }
+      const app = document.querySelector('.app');
+      if (!app) return;
+      app.className = 'app is-terminated';
+      app.innerHTML =
+        '<div class="terminated-screen" role="status" aria-live="assertive">' +
+        '<div class="terminated-icon" aria-hidden="true">' + icon('power') + '</div>' +
+        '<h2 class="terminated-title">Game Compressor terminated</h2>' +
+        '<p class="terminated-copy">Exit this window and enjoy playing your games.</p>' +
+        '</div>';
+    }
+
     async function terminateProgram() {
       const btn = $('terminate-top');
       if (!confirm('Terminate Game Compressor now?\n\nRecommended before playing games because leaving it running can have minor effects on game performance.')) {
@@ -5417,16 +5629,8 @@
         btn.disabled = true;
         btn.title = 'Terminating Game Compressor';
       }
-      try {
-        await api('/api/control/shutdown', { method: 'POST' });
-        if (btn) btn.title = 'Game Compressor terminated';
-      } catch (err) {
-        if (btn) {
-          btn.disabled = false;
-          btn.title = 'Terminate Game Compressor';
-        }
-        alert(err.message);
-      }
+      requestShutdownAfterTerminate();
+      showTerminatedScreen();
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -5557,7 +5761,13 @@
 
       refreshAll();
       setInterval(refreshJob, 1200);
-      setInterval(refreshAll, 10000);
+      setInterval(() => {
+        if (jobIsBusy()) {
+          refreshJob();
+        } else {
+          refreshAll();
+        }
+      }, 10000);
     });
   </script>
 </body>
