@@ -30,6 +30,7 @@ typedef struct pfs_app_info {
   uint64_t scan_entries;
   uint64_t scan_elapsed_ms;
   uint64_t scan_workers;
+  int apr_indexed;
 } pfs_app_info_t;
 
 typedef struct pfs_compress_plan pfs_compress_plan_t;

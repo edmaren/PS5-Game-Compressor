@@ -1299,6 +1299,13 @@
       font-size: 12px;
     }
 
+    .history-chips {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
     .usb-row,
     .format-row {
       width: 100%;
@@ -2513,6 +2520,10 @@
 	      return '<span class="chip">' + escapeHtml(smallLabel(storage)) + '</span>';
 	    }
 
+	    function aprIndexedChip(item) {
+	      return item && item.aprIndexed ? '<span class="chip ok">APR indexed</span>' : '';
+	    }
+
 	    function instanceRoleChip(g) {
 	      const role = gameInstanceRole(g);
 	      if (!role) return '';
@@ -2534,9 +2545,10 @@
 	      if (storage) tags.push(storage);
 	      if (role) tags.push(role);
 	      if (count > 1) tags.push(count + ' locations');
+	      if (g && g.aprIndexed) tags.push('APR indexed');
 	      if (!tags.length) return '';
 	      return '<div class="row-tags">' + tags.map((tag) => (
-	        '<span class="row-tag">' + escapeHtml(smallLabel(tag)) + '</span>'
+	        '<span class="row-tag">' + escapeHtml(tag === 'APR indexed' ? tag : smallLabel(tag)) + '</span>'
 	      )).join('') + '</div>';
 	    }
 
@@ -4242,6 +4254,7 @@
 	        locationCountChip(g) +
 	        detailMountStateChip(g) +
         detailStatusChip(g) +
+	        aprIndexedChip(g) +
 	        sizeChip(g) +
 	        savedChip(g) +
 	        badBlocksChip(g) +
@@ -4289,6 +4302,11 @@
 	              op.status === 'pending' ? 'warn' : '';
 	        const repairText = repairedBlocksText(op, jobForOperation(op));
 	        const result = historyResultLabel(op, jobForOperation(op));
+	        const chips =
+	          '<div class="history-chips"><span class="chip ' + chipClass + '">' +
+	          escapeHtml(smallLabel(op.status)) + '</span>' +
+	          aprIndexedChip(op) +
+	          '</div>';
 	        const repairMeta = repairText && result !== repairText ?
 	          '<div class="history-meta">' + escapeHtml(repairText) + '</div>' : '';
 	        const metaRows = [
@@ -4310,7 +4328,7 @@
 	          repairMeta +
 	          (op.error ? '<div class="history-meta danger-text">' + escapeHtml(op.error) + '</div>' : '') +
           retryAction +
-	          '</div><span class="chip ' + chipClass + '">' + escapeHtml(smallLabel(op.status)) + '</span></div>';
+	          '</div>' + chips + '</div>';
 	      }).join('');
     }
 

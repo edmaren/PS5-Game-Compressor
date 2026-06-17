@@ -34,6 +34,7 @@
 #include "pfs_job_util.h"
 #include "pfs_validate_hash.h"
 #include "transfer_internal.h"
+#include "ampr_index.h"
 #include "exfat_upcase_standard.inc"
 
 #define PFS_BLOCK_SIZE 65536ULL
@@ -130,6 +131,7 @@ typedef struct scan_file {
   char rel[1024];
   char abs[1024];
   uint64_t size;
+  int64_t mtime;
   uint64_t stream_predicted_stored;
   uint32_t stream_schedule_order;
   uint32_t stream_predicted_gain_permille;
@@ -2755,7 +2757,8 @@ destructive_stream_truncate_committed(int fd, uint64_t file_start,
 }
 
 static int
-scan_push(scan_list_t *list, const char *abs, const char *rel, uint64_t size) {
+scan_push(scan_list_t *list, const char *abs, const char *rel, uint64_t size,
+          int64_t mtime) {
   if(list->count == list->cap) {
     size_t next = list->cap ? list->cap * 2 : 128;
     scan_file_t *p = realloc(list->items, next * sizeof(*p));
@@ -2768,6 +2771,7 @@ scan_push(scan_list_t *list, const char *abs, const char *rel, uint64_t size) {
   snprintf(it->abs, sizeof(it->abs), "%s", abs);
   snprintf(it->rel, sizeof(it->rel), "%s", rel);
   it->size = size;
+  it->mtime = mtime;
   return 0;
 }
 
@@ -2813,6 +2817,83 @@ scan_list_reset(scan_list_t *files) {
   if(!files) return;
   free(files->items);
   memset(files, 0, sizeof(*files));
+}
+
+static void
+scan_stats_remove_file(scan_stats_t *stats, uint64_t size) {
+  if(!stats) return;
+  if(stats->files > 0) stats->files--;
+  if(stats->entries > 0) stats->entries--;
+  stats->bytes = stats->bytes > size ? stats->bytes - size : 0;
+}
+
+static void
+scan_remove_at(scan_list_t *files, size_t idx) {
+  if(!files || idx >= files->count) return;
+  if(idx + 1 < files->count) {
+    memmove(&files->items[idx], &files->items[idx + 1],
+            (files->count - idx - 1) * sizeof(files->items[0]));
+  }
+  files->count--;
+}
+
+static void
+scan_remove_rel_ci(scan_list_t *files, scan_stats_t *stats, const char *rel) {
+  if(!files || !rel) return;
+  for(size_t i = 0; i < files->count;) {
+    if(ascii_casecmp(files->items[i].rel, rel) == 0) {
+      scan_stats_remove_file(stats, files->items[i].size);
+      scan_remove_at(files, i);
+    } else {
+      i++;
+    }
+  }
+}
+
+static scan_file_t *
+scan_find_rel_ci(scan_list_t *files, const char *rel) {
+  if(!files || !rel) return NULL;
+  for(size_t i = 0; i < files->count; i++) {
+    if(ascii_casecmp(files->items[i].rel, rel) == 0) return &files->items[i];
+  }
+  return NULL;
+}
+
+static int
+dot_delete_is_mac_metadata_name(const char *name) {
+  if(!name || !name[0]) return 0;
+  if(!strcmp(name, ".DS_Store")) return 1;
+  if(!strncmp(name, "._", 2)) return 1;
+  if(!strcmp(name, ".Spotlight-V100")) return 1;
+  if(!strcmp(name, ".Trashes")) return 1;
+  if(!strcmp(name, ".fseventsd")) return 1;
+  if(!strcmp(name, ".TemporaryItems")) return 1;
+  if(!strcmp(name, ".DocumentRevisions-V100")) return 1;
+  if(!strcmp(name, ".VolumeIcon.icns")) return 1;
+  if(!strcmp(name, ".apdisk")) return 1;
+  if(!strcmp(name, ".metadata_never_index")) return 1;
+  if(!strcmp(name, ".com.apple.timemachine.donotpresent")) return 1;
+  if(!strcmp(name, "__MACOSX")) return 1;
+  if(!strcmp(name, "Icon\r")) return 1;
+  return 0;
+}
+
+static int
+dot_delete_mac_metadata(const char *dir_path, const char *name,
+                        char *err, size_t err_size) {
+  char child_abs[1024];
+  if(!dot_delete_is_mac_metadata_name(name)) return 0;
+  if(join_abs(child_abs, sizeof(child_abs), dir_path, name) != 0) {
+    set_err(err, err_size, "path too long");
+    return -1;
+  }
+  if(remove_tree_local(child_abs) != 0) {
+    set_err(err, err_size, "delete Mac metadata %s: %s", child_abs,
+            strerror(errno));
+    return -1;
+  }
+  PFSC_WINDOW_LOG("dot delete removed Mac metadata path=%s", child_abs);
+  return 1;
 }
 
 static int
@@ -2874,7 +2955,7 @@ scan_parallel_note_dir(scan_parallel_ctx_t *ctx, const char *rel,
 
 static int
 scan_parallel_note_file(scan_parallel_ctx_t *ctx, const char *abs,
-                        const char *rel, uint64_t size,
+                        const char *rel, uint64_t size, int64_t mtime,
                         char *local_err, size_t local_err_size) {
   int rc = 0;
   if(job_cancelled()) {
@@ -2887,7 +2968,7 @@ scan_parallel_note_file(scan_parallel_ctx_t *ctx, const char *abs,
   ctx->stats.files++;
   if(UINT64_MAX - ctx->stats.bytes < size) ctx->stats.bytes = UINT64_MAX;
   else ctx->stats.bytes += size;
-  if(scan_push(ctx->files, abs, rel, size) != 0) {
+  if(scan_push(ctx->files, abs, rel, size, mtime) != 0) {
     snprintf(local_err, local_err_size, "%s", "out of memory");
     rc = -1;
   } else {
@@ -2943,6 +3024,13 @@ scan_process_dir_parallel(scan_parallel_ctx_t *ctx, const char *rel,
       break;
     }
     if(!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+    int dot_rc = dot_delete_mac_metadata(dir_path, ent->d_name, local_err,
+                                         local_err_size);
+    if(dot_rc < 0) {
+      rc = -1;
+      break;
+    }
+    if(dot_rc > 0) continue;
     if(!path_segment_supported(ent->d_name)) {
       snprintf(local_err, local_err_size, "unsupported path name: %s",
                ent->d_name);
@@ -2984,6 +3072,7 @@ scan_process_dir_parallel(scan_parallel_ctx_t *ctx, const char *rel,
     } else if(S_ISREG(st.st_mode)) {
       if(scan_parallel_note_file(ctx, child_abs, child_rel,
                                  st.st_size > 0 ? (uint64_t)st.st_size : 0,
+                                 (int64_t)st.st_mtime,
                                  local_err, local_err_size) != 0) {
         rc = -1;
         break;
@@ -3181,6 +3270,12 @@ scan_collect_serial(const char *root, const char *rel, scan_list_t *files,
       break;
     }
     if(!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+    int dot_rc = dot_delete_mac_metadata(dir_path, ent->d_name, err, err_size);
+    if(dot_rc < 0) {
+      rc = -1;
+      break;
+    }
+    if(dot_rc > 0) continue;
     if(!path_segment_supported(ent->d_name)) {
       set_err(err, err_size, "unsupported path name: %s", ent->d_name);
       rc = -1;
@@ -3234,8 +3329,8 @@ scan_collect_serial(const char *root, const char *rel, scan_list_t *files,
         else stats->bytes += size;
         scan_publish_stats(stats, started_us);
       }
-      if(scan_push(files, child_abs, child_rel,
-                   size) != 0) {
+      if(scan_push(files, child_abs, child_rel, size,
+                   (int64_t)st.st_mtime) != 0) {
         set_err(err, err_size, "out of memory");
         rc = -1;
         break;
@@ -3280,6 +3375,102 @@ scan_collect(const char *root, const char *rel, scan_list_t *files,
     stats->elapsed_ms = (monotonic_us() - started_us) / 1000ULL;
     scan_publish_stats(stats, 0);
   }
+  return rc;
+}
+
+static int
+scan_prepare_ampr_index(const char *root, scan_list_t *scans,
+                        scan_stats_t *stats, int *apr_indexed,
+                        char *err, size_t err_size) {
+  ampr_index_entry_t *entries = NULL;
+  ampr_index_stats_t ampr_stats;
+  char index_abs[1024];
+  struct stat st;
+  uint64_t index_size;
+  int64_t index_mtime;
+  scan_file_t *existing;
+  int rc = -1;
+
+  if(apr_indexed) *apr_indexed = 0;
+  if(!root || !scans || scans->count == 0) return 0;
+
+  entries = calloc(scans->count, sizeof(*entries));
+  if(!entries) {
+    set_err(err, err_size, "out of memory");
+    errno = ENOMEM;
+    return -1;
+  }
+  for(size_t i = 0; i < scans->count; i++) {
+    entries[i].rel = scans->items[i].rel;
+    entries[i].size = scans->items[i].size;
+    entries[i].mtime = scans->items[i].mtime;
+  }
+  if(!ampr_index_entries_need_index(entries, scans->count)) {
+    rc = 0;
+    goto done;
+  }
+
+  job_set_current("Preparing AMPR index");
+  if(ampr_index_build_from_entries(root, entries, scans->count, 0,
+                                   &ampr_stats, err, err_size) != 0) {
+    goto done;
+  }
+
+  scan_remove_rel_ci(scans, stats, "ampr_emu.index.tmp");
+  if(join_abs(index_abs, sizeof(index_abs), root, "ampr_emu.index") != 0) {
+    set_err(err, err_size, "AMPR index path too long");
+    goto done;
+  }
+  if(stat(index_abs, &st) != 0) {
+    set_err(err, err_size, "stat AMPR index: %s", strerror(errno));
+    goto done;
+  }
+  index_size = st.st_size > 0 ? (uint64_t)st.st_size : 0;
+  index_mtime = (int64_t)st.st_mtime;
+
+  existing = scan_find_rel_ci(scans, "ampr_emu.index");
+  if(existing) {
+    uint64_t old_size = existing->size;
+    snprintf(existing->abs, sizeof(existing->abs), "%s", index_abs);
+    existing->size = index_size;
+    existing->mtime = index_mtime;
+    if(stats) {
+      if(index_size >= old_size) {
+        uint64_t delta = index_size - old_size;
+        if(UINT64_MAX - stats->bytes < delta) stats->bytes = UINT64_MAX;
+        else stats->bytes += delta;
+      } else {
+        uint64_t delta = old_size - index_size;
+        stats->bytes = stats->bytes > delta ? stats->bytes - delta : 0;
+      }
+    }
+  } else {
+    if(scan_push(scans, index_abs, "ampr_emu.index", index_size,
+                 index_mtime) != 0) {
+      set_err(err, err_size, "out of memory");
+      errno = ENOMEM;
+      goto done;
+    }
+    if(stats) {
+      stats->files++;
+      stats->entries++;
+      if(UINT64_MAX - stats->bytes < index_size) stats->bytes = UINT64_MAX;
+      else stats->bytes += index_size;
+    }
+  }
+  scan_publish_stats(stats, 0);
+  PFSC_WINDOW_LOG("ampr index generated root=%s entries=%llu size=%llu hash_slots=%llu probed=%llu max_probe=%llu",
+                  root,
+                  (unsigned long long)ampr_stats.indexed_files,
+                  (unsigned long long)index_size,
+                  (unsigned long long)ampr_stats.hash_slots,
+                  (unsigned long long)ampr_stats.probed_entries,
+                  (unsigned long long)ampr_stats.max_probe);
+  if(apr_indexed) *apr_indexed = 1;
+  rc = 0;
+
+done:
+  free(entries);
   return rc;
 }
 
@@ -4163,11 +4354,17 @@ build_layout_from_files(const char *root, pfs_layout_t *l,
                         char *err, size_t err_size) {
   scan_list_t scans = {0};
   scan_stats_t stats = {0};
+  int apr_indexed = 0;
   int rc = -1;
 
   job_set_current("Scanning app folder");
   if(scan_collect(root, "", &scans, &stats, err, err_size) != 0) goto done;
+  if(scan_prepare_ampr_index(root, &scans, &stats, &apr_indexed,
+                             err, err_size) != 0) {
+    goto done;
+  }
   scan_stats_to_info(info, &stats);
+  if(info) info->apr_indexed = apr_indexed;
   if(scans.count == 0) {
     set_err(err, err_size, "app folder contains no files");
     goto done;
@@ -4188,6 +4385,7 @@ build_layout_from_files_stream(const char *root, pfs_layout_t *l,
   scan_list_t scans = {0};
   scan_stats_t stats = {0};
   int rc = -1;
+  int apr_indexed = 0;
   uint64_t forward_files = 0;
   uint64_t reverse_files = 0;
   pfs_stream_options_t normalized;
@@ -4195,7 +4393,12 @@ build_layout_from_files_stream(const char *root, pfs_layout_t *l,
   stream_options_normalize(stream_opts, &normalized);
   job_set_current("Scheduling budgeted stream");
   if(scan_collect(root, "", &scans, &stats, err, err_size) != 0) goto done;
+  if(scan_prepare_ampr_index(root, &scans, &stats, &apr_indexed,
+                             err, err_size) != 0) {
+    goto done;
+  }
   scan_stats_to_info(info, &stats);
+  if(info) info->apr_indexed = apr_indexed;
   if(scans.count == 0) {
     set_err(err, err_size, "app folder contains no files");
     goto done;
@@ -4770,11 +4973,17 @@ build_exfat_layout_from_files(const char *root, const char *title_id,
                               char *err, size_t err_size) {
   scan_list_t scans = {0};
   scan_stats_t stats = {0};
+  int apr_indexed = 0;
   int rc = -1;
 
   job_set_current("Scanning app folder");
   if(scan_collect(root, "", &scans, &stats, err, err_size) != 0) goto done;
+  if(scan_prepare_ampr_index(root, &scans, &stats, &apr_indexed,
+                             err, err_size) != 0) {
+    goto done;
+  }
   scan_stats_to_info(info, &stats);
+  if(info) info->apr_indexed = apr_indexed;
   if(scans.count == 0) {
     set_err(err, err_size, "app folder contains no files");
     goto done;
@@ -4796,6 +5005,7 @@ build_exfat_layout_from_files_stream(const char *root, const char *title_id,
   scan_list_t scans = {0};
   scan_stats_t stats = {0};
   int rc = -1;
+  int apr_indexed = 0;
   uint64_t forward_files = 0;
   uint64_t reverse_files = 0;
   pfs_stream_options_t normalized;
@@ -4803,7 +5013,12 @@ build_exfat_layout_from_files_stream(const char *root, const char *title_id,
   stream_options_normalize(stream_opts, &normalized);
   job_set_current("Scheduling budgeted stream");
   if(scan_collect(root, "", &scans, &stats, err, err_size) != 0) goto done;
+  if(scan_prepare_ampr_index(root, &scans, &stats, &apr_indexed,
+                             err, err_size) != 0) {
+    goto done;
+  }
   scan_stats_to_info(info, &stats);
+  if(info) info->apr_indexed = apr_indexed;
   if(scans.count == 0) {
     set_err(err, err_size, "app folder contains no files");
     goto done;

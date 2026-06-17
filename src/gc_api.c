@@ -181,6 +181,7 @@ typedef struct gc_game {
   uint64_t icon_mtime;
   int output_exists;
   int is_mounted;
+  int apr_indexed;
   char mount_status[32];
   gc_validation_state_t validation;
   char validation_status[32];
@@ -225,6 +226,7 @@ typedef struct gc_operation {
   uint64_t scan_entries;
   uint64_t scan_elapsed_ms;
   uint64_t scan_workers;
+  int apr_indexed;
   uint64_t read_bytes;
   uint64_t read_files;
   uint64_t read_dirs;
@@ -1552,6 +1554,19 @@ json_find_u64_value(const char *json, const char *key, uint64_t fallback) {
   return (uint64_t)strtoull(p, NULL, 10);
 }
 
+static int
+json_find_bool_value(const char *json, const char *key, int fallback) {
+  const char *value = NULL;
+  const char *after = NULL;
+  if(!json_find_value_span(json, NULL, key, &value, &after) || !value) {
+    return fallback;
+  }
+  value = json_skip_ws(value, after);
+  if(!strncmp(value, "true", 4)) return 1;
+  if(!strncmp(value, "false", 5)) return 0;
+  return fallback;
+}
+
 static void
 load_game_name(gc_game_t *g) {
   char path[1024];
@@ -1661,6 +1676,7 @@ load_validation_state(gc_game_t *g) {
   if(g->source_kind != GC_SOURCE_COMPRESSED) {
     snprintf(g->validation_status, sizeof(g->validation_status), "%s", "n/a");
     g->validation = GC_VALIDATION_NONE;
+    g->apr_indexed = 0;
     return 0;
   }
 
@@ -1685,6 +1701,7 @@ load_validation_state(gc_game_t *g) {
     snprintf(g->validation_status, sizeof(g->validation_status), "%s",
              "not-validated");
     g->validation = GC_VALIDATION_NONE;
+    g->apr_indexed = 0;
     return 0;
   }
   (void)json_size;
@@ -1708,6 +1725,9 @@ load_validation_state(gc_game_t *g) {
         json_find_u64_value(json, "compressionCompressedSize", 0);
     g->saved_bytes =
         json_find_u64_value(json, "compressionSavedBytes", 0);
+    g->apr_indexed = json_find_bool_value(json, "aprIndexed", 0);
+  } else {
+    g->apr_indexed = 0;
   }
   if(!marker_matches_path ||
      !strcmp(marker_status, "bad-blocks-found") ||
@@ -1787,7 +1807,8 @@ infer_compression_source_size_from_known_roots(const char *title_id,
 static int
 write_validation_marker_ex(const char *title_id, const char *image_path,
                            const pfs_repair_info_t *info, const char *result,
-                           uint64_t compression_source_size) {
+                           uint64_t compression_source_size,
+                           int apr_indexed) {
   if(mkdirs(GC_VALIDATION_DIR) != 0) return -1;
   char marker[1024];
   char legacy_marker[1024];
@@ -1796,40 +1817,44 @@ write_validation_marker_ex(const char *title_id, const char *image_path,
   if(stat(image_path, &st) != 0) return -1;
   uint64_t compressed_size = st.st_size > 0 ? (uint64_t)st.st_size : 0;
   uint64_t saved_bytes = 0;
+  int marker_apr_indexed = apr_indexed ? 1 : 0;
+  char *old_json = NULL;
+  size_t old_json_size = 0;
+  char old_path[1024] = {0};
+
+  if(marker_path_for_title_source(title_id, image_path, marker,
+                                  sizeof(marker)) != 0 ||
+     read_file_limited(marker, &old_json, &old_json_size, 64 * 1024) != 0) {
+    marker_path_for_title(title_id, marker, sizeof(marker));
+    (void)read_file_limited(marker, &old_json, &old_json_size, 64 * 1024);
+  }
+  if(old_json) {
+    (void)old_json_size;
+    json_find_string_value(old_json, "path", old_path, sizeof(old_path));
+    if(!strcmp(old_path, image_path)) {
+      if(json_find_bool_value(old_json, "aprIndexed", 0)) {
+        marker_apr_indexed = 1;
+      }
+      if(compression_source_size == 0) {
+        compression_source_size =
+            json_find_u64_value(old_json, "compressionSourceSize", 0);
+      }
+    }
+    free(old_json);
+  }
 
   if(compression_source_size > 0) {
     saved_bytes = compression_source_size > compressed_size
         ? compression_source_size - compressed_size
         : 0;
   } else {
-    char *old_json = NULL;
-    size_t old_json_size = 0;
-    char old_path[1024] = {0};
-    if(marker_path_for_title_source(title_id, image_path, marker,
-                                    sizeof(marker)) != 0 ||
-       read_file_limited(marker, &old_json, &old_json_size, 64 * 1024) != 0) {
-      marker_path_for_title(title_id, marker, sizeof(marker));
-      (void)read_file_limited(marker, &old_json, &old_json_size, 64 * 1024);
-    }
-    if(old_json) {
-      (void)old_json_size;
-      json_find_string_value(old_json, "path", old_path, sizeof(old_path));
-      if(!strcmp(old_path, image_path)) {
-        compression_source_size =
-            json_find_u64_value(old_json, "compressionSourceSize", 0);
-        if(compression_source_size > compressed_size) {
-          saved_bytes = compression_source_size - compressed_size;
-        }
-      }
-      free(old_json);
-    }
     if(compression_source_size == 0) {
       compression_source_size =
           infer_compression_source_size_from_known_roots(title_id, image_path,
                                                         compressed_size);
-      if(compression_source_size > compressed_size) {
-        saved_bytes = compression_source_size - compressed_size;
-      }
+    }
+    if(compression_source_size > compressed_size) {
+      saved_bytes = compression_source_size - compressed_size;
     }
   }
 
@@ -1843,12 +1868,14 @@ write_validation_marker_ex(const char *title_id, const char *image_path,
                    "\n  \"compressionSourceSize\":%llu,"
                    "\n  \"compressionCompressedSize\":%llu,"
                    "\n  \"compressionSavedBytes\":%llu,"
+                   "\n  \"aprIndexed\":%s,"
                    "\n  \"status\":",
                    (unsigned long long)(st.st_size > 0 ? st.st_size : 0),
                    (unsigned long long)st.st_mtime,
                    (unsigned long long)compression_source_size,
                    (unsigned long long)compressed_size,
-                   (unsigned long long)saved_bytes) == 0 &&
+                   (unsigned long long)saved_bytes,
+                   marker_apr_indexed ? "true" : "false") == 0 &&
       json_string(&b, result ? result : "") == 0 &&
       json_appendf(&b,
                    ",\n  \"nestedName\":") == 0 &&
@@ -2962,6 +2989,7 @@ operation_store_scan_stats(gc_operation_t *op, const pfs_app_info_t *info) {
   op->scan_entries = info->scan_entries;
   op->scan_elapsed_ms = info->scan_elapsed_ms;
   op->scan_workers = info->scan_workers;
+  if(info->apr_indexed) op->apr_indexed = 1;
 }
 
 static void
@@ -3077,6 +3105,7 @@ append_operation_json(json_buf_t *b, const gc_operation_t *op,
                    "\"scanBytes\":%llu,\"scanFiles\":%llu,"
                    "\"scanDirs\":%llu,\"scanEntries\":%llu,"
                    "\"scanElapsedMs\":%llu,\"scanWorkers\":%llu,"
+                   "\"aprIndexed\":%s,"
                    "\"readBytes\":%llu,\"readFiles\":%llu,"
                    "\"readDirs\":%llu,\"readElapsedMs\":%llu,"
                    "\"readAvgBps\":%llu,\"readMinBps\":%llu,"
@@ -3097,6 +3126,7 @@ append_operation_json(json_buf_t *b, const gc_operation_t *op,
                    (unsigned long long)op->scan_entries,
                    (unsigned long long)op->scan_elapsed_ms,
                    (unsigned long long)op->scan_workers,
+                   op->apr_indexed ? "true" : "false",
                    (unsigned long long)op->read_bytes,
                    (unsigned long long)op->read_files,
                    (unsigned long long)op->read_dirs,
@@ -5478,7 +5508,7 @@ run_move_op(gc_operation_t *op) {
   if(copy_only && game.source_kind == GC_SOURCE_COMPRESSED) {
     (void)write_validation_marker_ex(
         op->title_id, target_path, NULL, "compression-stats",
-        game.compression_source_size);
+        game.compression_source_size, game.apr_indexed);
   }
 
   if(copy_only) {
@@ -6008,7 +6038,8 @@ run_compress_op(gc_operation_t *op) {
       operation_mark_not_mounted(op, op->error);
       operation_store_compression_stats(op, game.source_size, info.output_path);
       (void)write_validation_marker_ex(op->title_id, info.output_path, NULL,
-                                       "compression-stats", game.source_size);
+                                       "compression-stats", game.source_size,
+                                       op->apr_indexed);
       return 0;
     }
     gc_log("compress mount retry succeeded title=%s output=%s",
@@ -6059,7 +6090,8 @@ run_compress_op(gc_operation_t *op) {
       }
       operation_mark_verified_not_mounted(op, err);
       (void)write_validation_marker_ex(op->title_id, info.output_path, &repair,
-                                       op->result, game.source_size);
+                                       op->result, game.source_size,
+                                       op->apr_indexed);
       return 0;
     }
     {
@@ -6079,7 +6111,8 @@ run_compress_op(gc_operation_t *op) {
   }
 
   (void)write_validation_marker_ex(op->title_id, info.output_path, &repair,
-                                   op->result, game.source_size);
+                                   op->result, game.source_size,
+                                   op->apr_indexed);
   char final_result[32];
   snprintf(final_result, sizeof(final_result), "%s", op->result);
   if(delete_after) {
@@ -6678,7 +6711,7 @@ run_validate_repair_op(gc_operation_t *op) {
       operation_mark_verified_not_mounted(op, err);
       snprintf(final_result, sizeof(final_result), "%s", op->result);
       (void)write_validation_marker_ex(op->title_id, repair_path, &repair,
-                                       op->result, 0);
+                                       op->result, 0, 0);
       if(mount_switch_restore_after_operation_ex(op, hidden, hidden_count, 0,
                                                  restore_err,
                                                  sizeof(restore_err)) != 0) {
@@ -6706,7 +6739,7 @@ run_validate_repair_op(gc_operation_t *op) {
     return -1;
   }
   (void)write_validation_marker_ex(op->title_id, repair_path, &repair,
-                                   op->result, 0);
+                                   op->result, 0, 0);
   if(mount_switch_restore_after_operation_ex(op, hidden, hidden_count, 0,
                                              restore_err,
                                              sizeof(restore_err)) != 0) {
@@ -6846,7 +6879,7 @@ run_validate_only_op(gc_operation_t *op) {
       if(repair.repaired_blocks == 0) {
         operation_mark_verified_not_mounted(op, err);
         (void)write_validation_marker_ex(op->title_id, repair_path, &repair,
-                                         op->result, 0);
+                                         op->result, 0, 0);
       } else {
 	        snprintf(op->result, sizeof(op->result), "%s",
 	                 "bad-blocks-found-not-mounted");
@@ -6885,7 +6918,7 @@ run_validate_only_op(gc_operation_t *op) {
   }
   if(repair.repaired_blocks == 0) {
     (void)write_validation_marker_ex(op->title_id, repair_path, &repair,
-                                     op->result, 0);
+                                     op->result, 0, 0);
 	  } else {
 	    delete_validation_marker_for_path(op->title_id, repair_path);
 	  }
@@ -7117,7 +7150,7 @@ run_refresh_mount_op(gc_operation_t *op) {
     snprintf(op->result, sizeof(op->result), "%s", "success");
     if(was_validated) {
       (void)write_validation_marker_ex(op->title_id, game.source_path, NULL,
-                                       "validated", 0);
+                                       "validated", 0, 0);
     }
     gc_log("refresh-mount complete title=%s path=%s", op->title_id,
            game.source_path);
@@ -8353,6 +8386,9 @@ append_game_summary(json_buf_t *b, int *first, const gc_game_t *game,
   uint64_t stream_extra = game->size_estimated ? 0 : stream_extra_needed(game);
   int can_move_to_external = game->source_kind != GC_SOURCE_UNKNOWN &&
       can_move_to_external_storage(game->source_path);
+  int apr_indexed = game->apr_indexed ||
+      (active && active->apr_indexed) ||
+      (pending && pending->apr_indexed);
   if(json_append(b, "{\"titleId\":") != 0 ||
      json_string(b, game->title_id) != 0 ||
      json_append(b, ",\"instanceId\":") != 0 ||
@@ -8381,6 +8417,7 @@ append_game_summary(json_buf_t *b, int *first, const gc_game_t *game,
                   "\"compressionSourceSize\":%llu,"
                   "\"compressedSize\":%llu,"
                   "\"savedBytes\":%llu,"
+                  "\"aprIndexed\":%s,"
                   "\"sizePending\":%s,"
                   "\"sizeStatus\":\"%s\","
                   "\"sizeEstimated\":%s,"
@@ -8400,6 +8437,7 @@ append_game_summary(json_buf_t *b, int *first, const gc_game_t *game,
                   (unsigned long long)game->compression_source_size,
                   (unsigned long long)game->compressed_size,
                   (unsigned long long)game->saved_bytes,
+                  apr_indexed ? "true" : "false",
                   game->size_pending ? "true" : "false",
                   gc_size_status_name(game->size_status),
                   game->size_estimated ? "true" : "false",
