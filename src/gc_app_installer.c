@@ -324,9 +324,7 @@ gc_install_app_if_needed(void) {
 
   if(app_exists && assets_changed) {
     gc_notify_message("Updating home tile", NULL);
-  } else if(app_exists) {
-    gc_notify_message("Refreshing home tile", NULL);
-  } else {
+  } else if(!app_exists) {
     gc_notify_message("Installing home tile", NULL);
   }
 
@@ -383,7 +381,7 @@ gc_install_app_if_needed(void) {
            GC_MARKER_PATH, errno);
   }
 
-  gc_notify_message("Ready", "Home tile installed");
+  gc_notify_message("Home tile installed", NULL);
   return 1;
 }
 

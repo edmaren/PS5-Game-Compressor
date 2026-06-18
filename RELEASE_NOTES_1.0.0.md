@@ -25,6 +25,8 @@ Compared against `v0.9.9`.
   responsiveness.
 - Removes the compression optimization selector and the old Fast compression
   profile path.
+- Adds a Raw only compression mode for APR Emu compatibility. It does not reduce
+  storage use, but it can help APR Emu titles run from internal SSD.
 - Improves delete/cleanup behavior by removing validation sidecars such as
   `.vhash` when compressed outputs are deleted or cleaned up after failure.
 - Updates the terminate flow. The terminate button removes the Game Compressor

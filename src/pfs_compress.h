@@ -18,6 +18,7 @@ typedef struct pfs_app_info {
   int  nested_type;
   int  source_type;
   int  delete_policy;
+  int  raw_only;
   int  output_exists;
   uint64_t stream_budget_bytes;
   uint64_t stream_reserve_bytes;
@@ -82,6 +83,7 @@ int pfs_compress_source_to_ffpfsc_opts_output_ex(
                                       const char *path, int overwrite,
                                       int workers, int format,
                                       int delete_policy,
+                                      int raw_only,
                                       const char *output_path,
                                       const pfs_stream_options_t *stream_opts,
                                       pfs_app_info_t *info,
@@ -90,6 +92,7 @@ int pfs_compress_prepare_source_to_ffpfsc_opts_output_ex(
                                       const char *path, int overwrite,
                                       int format,
                                       int delete_policy,
+                                      int raw_only,
                                       const char *output_path,
                                       const pfs_stream_options_t *stream_opts,
                                       pfs_compress_plan_t **plan_out,

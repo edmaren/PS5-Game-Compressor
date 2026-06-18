@@ -6436,6 +6436,7 @@ compress_nested_to_pfsc_windowed(int fd, uint64_t file_start,
                                  int nested_type,
                                  const char *vhash_path,
                                  uint64_t *stored_size,
+                                 int raw_only,
                                  int allow_io_overlap,
                                  char *err, size_t err_size) {
   uint64_t block_count = ceil_div_u64(nested->image_size, PFS_BLOCK_SIZE);
@@ -6454,7 +6455,7 @@ compress_nested_to_pfsc_windowed(int fd, uint64_t file_start,
     .zlib_level = GC_PFSC_ZLIB_LEVEL,
     .threshold_gain = GC_PFSC_THRESHOLD_GAIN,
     .force_raw_exec = GC_PFSC_FORCE_RAW_EXEC,
-    .raw_only = 0,
+    .raw_only = raw_only ? 1 : 0,
   };
 
   memset(&pool, 0, sizeof(pool));
@@ -6673,6 +6674,7 @@ compress_nested_to_pfsc(int fd, uint64_t file_start, pfs_layout_t *nested,
                         destructive_stream_ctx_t *stream,
                         const char *source_root, int *delete_started,
                         uint64_t *stored_size,
+                        int raw_only,
                         int allow_io_overlap, char *err, size_t err_size) {
   uint64_t block_count = ceil_div_u64(nested->image_size, PFS_BLOCK_SIZE);
   uint64_t logical_size = block_count * PFS_BLOCK_SIZE;
@@ -6696,6 +6698,7 @@ compress_nested_to_pfsc(int fd, uint64_t file_start, pfs_layout_t *nested,
     .zlib_level = GC_PFSC_ZLIB_LEVEL,
     .threshold_gain = GC_PFSC_THRESHOLD_GAIN,
     .force_raw_exec = GC_PFSC_FORCE_RAW_EXEC,
+    .raw_only = raw_only ? 1 : 0,
   };
 
   memset(&pool, 0, sizeof(pool));
@@ -6718,7 +6721,7 @@ compress_nested_to_pfsc(int fd, uint64_t file_start, pfs_layout_t *nested,
   if(!delete_stream) {
     int window_rc = compress_nested_to_pfsc_windowed(
         fd, file_start, nested, requested_workers, nested_name, nested_type,
-        vhash_path, stored_size, allow_io_overlap,
+        vhash_path, stored_size, raw_only, allow_io_overlap,
         err, err_size);
     if(window_rc == 0) {
       rc = 0;
@@ -7569,6 +7572,7 @@ pfs_compress_prepare_probed_to_ffpfsc_opts(pfs_compress_plan_t *plan,
                                            const pfs_app_info_t *src_info,
                                            int overwrite, int format,
                                            int delete_policy,
+                                           int raw_only,
                                            const pfs_stream_options_t *stream_opts,
                                            pfs_app_info_t *info_out,
                                            char *err, size_t err_size) {
@@ -7617,6 +7621,7 @@ pfs_compress_prepare_probed_to_ffpfsc_opts(pfs_compress_plan_t *plan,
   }
   info->format = format;
   info->delete_policy = delete_policy;
+  info->raw_only = raw_only ? 1 : 0;
   if(info->source_type == PFS_COMPRESS_SOURCE_APP &&
      delete_policy == PFS_DELETE_STREAM) {
     pfs_stream_options_t normalized;
@@ -7784,6 +7789,7 @@ pfs_compress_execute_prepared_to_ffpfsc(pfs_compress_plan_t *plan,
                              destructive_stream ? &stream_ctx : NULL,
                              info->source_path,
                              &delete_started, &stored_size,
+                             info->raw_only,
                              allow_io_overlap,
                              err, err_size) != 0) {
     goto done;
@@ -7888,6 +7894,7 @@ static int
 pfs_compress_probed_to_ffpfsc_opts(pfs_app_info_t *info, int overwrite,
                                    int workers, int format,
                                    int delete_policy,
+                                   int raw_only,
                                    const pfs_stream_options_t *stream_opts,
                                    char *err, size_t err_size) {
   pfs_compress_plan_t *plan = calloc(1, sizeof(*plan));
@@ -7898,7 +7905,7 @@ pfs_compress_probed_to_ffpfsc_opts(pfs_app_info_t *info, int overwrite,
     return -1;
   }
   rc = pfs_compress_prepare_probed_to_ffpfsc_opts(
-      plan, info, overwrite, format, delete_policy,
+      plan, info, overwrite, format, delete_policy, raw_only,
       stream_opts, info, err, err_size);
   if(rc == 0) {
     rc = pfs_compress_execute_prepared_to_ffpfsc(
@@ -7913,6 +7920,7 @@ pfs_compress_prepare_source_to_ffpfsc_opts_output_ex(
                                            const char *path, int overwrite,
                                            int format,
                                            int delete_policy,
+                                           int raw_only,
                                            const char *output_path,
                                            const pfs_stream_options_t *stream_opts,
                                            pfs_compress_plan_t **plan_out,
@@ -7949,7 +7957,7 @@ pfs_compress_prepare_source_to_ffpfsc_opts_output_ex(
     return -1;
   }
   rc = pfs_compress_prepare_probed_to_ffpfsc_opts(
-      plan, info, overwrite, format, delete_policy,
+      plan, info, overwrite, format, delete_policy, raw_only,
       stream_opts, info, err, err_size);
   if(rc != 0) {
     pfs_compress_plan_free(plan);
@@ -7964,6 +7972,7 @@ pfs_compress_source_to_ffpfsc_opts_output_ex(
                                            const char *path, int overwrite,
                                            int workers, int format,
                                            int delete_policy,
+                                           int raw_only,
                                            const char *output_path,
                                            const pfs_stream_options_t *stream_opts,
                                            pfs_app_info_t *info,
@@ -7983,7 +7992,7 @@ pfs_compress_source_to_ffpfsc_opts_output_ex(
     info->output_exists = stat(info->output_path, &st) == 0;
   }
   return pfs_compress_probed_to_ffpfsc_opts(info, overwrite, workers,
-                                            format, delete_policy,
+                                            format, delete_policy, raw_only,
                                             stream_opts,
                                             err, err_size);
 }

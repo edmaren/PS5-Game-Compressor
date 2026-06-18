@@ -262,14 +262,9 @@ gc_notify_operation_done(const char *action, const char *game,
     snprintf(message, sizeof(message), "%s - Cancelled", GC_NOTIFY_APP_TITLE);
     snprintf(submessage, sizeof(submessage), "%s for %s", cancel, name);
   } else {
-    snprintf(message, sizeof(message), "%s - Failed", GC_NOTIFY_APP_TITLE);
-    if(detail && detail[0]) {
-      snprintf(submessage, sizeof(submessage), "Failed to %s %s: %s",
-               label, name, detail);
-    } else {
-      snprintf(submessage, sizeof(submessage), "Failed to %s %s",
-               label, name);
-    }
+    snprintf(message, sizeof(message), "%s", GC_NOTIFY_APP_TITLE);
+    snprintf(submessage, sizeof(submessage), "Failed to %s %s",
+             label, name);
   }
   gc_notify_send(message, submessage);
 }

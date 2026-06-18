@@ -1554,6 +1554,43 @@
 
     .danger-text {
       color: var(--danger);
+      overflow-wrap: anywhere;
+    }
+
+    .ui-notice-layer {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 12;
+      width: min(390px, calc(100vw - 36px));
+      pointer-events: none;
+    }
+
+    .ui-notice-layer.hidden {
+      display: none;
+    }
+
+    .ui-notice {
+      display: grid;
+      gap: 4px;
+      padding: 13px 15px;
+      border: 1px solid rgba(216, 76, 91, .26);
+      border-radius: 14px;
+      background: #fff0f2;
+      color: var(--danger);
+      box-shadow: 0 18px 40px rgba(37, 51, 81, .18);
+      pointer-events: auto;
+      overflow-wrap: anywhere;
+    }
+
+    .ui-notice-title {
+      font-size: 13px;
+      font-weight: 780;
+    }
+
+    .ui-notice-meta {
+      font-size: 12px;
+      line-height: 1.35;
     }
 
     .delete-warning {
@@ -1872,6 +1909,23 @@
             <span class="chip">Select</span>
           </button>
         </div>
+        <div class="format-section-title">Compression Mode</div>
+        <div class="format-grid">
+          <button class="format-row is-default-choice" type="button" data-compress-mode="compressed">
+            <div>
+              <div class="history-title">Compressed</div>
+              <div class="history-meta">Reduces storage use when game data compresses well</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+          <button class="format-row" type="button" data-compress-mode="raw">
+            <div>
+              <div class="history-title">Raw only</div>
+              <div class="history-meta">Does not reduce space. Helps APR Emu titles run from internal SSD</div>
+            </div>
+            <span class="chip">Select</span>
+          </button>
+        </div>
         <div class="format-section-title">Destination</div>
         <div class="format-grid">
           <button class="format-row is-default-choice" type="button" data-compress-destination="keep">
@@ -2038,6 +2092,10 @@
     </div>
   </div>
 
+  <div class="ui-notice-layer hidden" id="ui-notice-layer" role="status" aria-live="polite">
+    <div class="ui-notice" id="ui-notice"></div>
+  </div>
+
   <script>
     const SELECTED_GAME_COOKIE = 'game_compressor_selected_title';
     const PFS_BLOCK_SIZE = 64 * 1024;
@@ -2067,6 +2125,7 @@
       moveMode: 'move',
       compressGame: null,
       compressFormat: 'exfat',
+      compressMode: 'compressed',
       compressDeletePolicy: 'after',
       compressSourcePolicy: 'after',
       compressSourcePolicyTouched: false,
@@ -2088,6 +2147,9 @@
       deleteGame: null,
       deleteBusy: false,
       secondaryMenuFor: '',
+      notice: null,
+      noticedHistory: false,
+      seenOperationKeys: {},
       iconCache: {},
       iconRequests: {},
 	      iconFailures: {},
@@ -3137,6 +3199,90 @@
       return null;
     }
 
+    function latestFailedOperationForGame(g) {
+      const titleId = String((g && g.titleId) || '');
+      if (!titleId || !Array.isArray(state.history)) return null;
+      for (const op of state.history) {
+        if (!operationIsCurrentForGame(g, op)) continue;
+        if (String((op && op.status) || '').toLowerCase() === 'failed') return op;
+        if (String((op && op.status) || '').toLowerCase() === 'success') return null;
+      }
+      return null;
+    }
+
+    function failureNoticeTitle(op) {
+      const action = String((op && op.action) || 'operation').toLowerCase();
+      if (action === 'compress') return 'Compress failed';
+      if (action === 'uncompress') return 'Unpack failed';
+      if (action === 'extract-image') return 'Extract failed';
+      if (action === 'validate-repair' || action === 'validate-only') return 'Validate failed';
+      if (action === 'refresh-mount') return 'Mount failed';
+      if (action === 'build-ampr-index') return 'APR index failed';
+      if (action === 'read-speed-test') return 'Read speed failed';
+      return 'Operation failed';
+    }
+
+    function failureNoticeText(op) {
+      return String((op && op.error) || historyResultLabel(op, null) || 'Failed');
+    }
+
+    function showFailureNotice(op) {
+      if (!op) return;
+      state.notice = {
+        key: opKey(op),
+        title: failureNoticeTitle(op),
+        text: failureNoticeText(op)
+      };
+      renderUiNotice();
+    }
+
+    function hideUiNotice() {
+      if (!state.notice) return;
+      state.notice = null;
+      renderUiNotice();
+    }
+
+    function renderUiNotice() {
+      const layer = $('ui-notice-layer');
+      const notice = $('ui-notice');
+      if (!layer || !notice) return;
+      if (!state.notice) {
+        layer.classList.add('hidden');
+        notice.innerHTML = '';
+        return;
+      }
+      notice.innerHTML =
+        '<div class="ui-notice-title">' + escapeHtml(state.notice.title) + '</div>' +
+        '<div class="ui-notice-meta">' + escapeHtml(state.notice.text) + '</div>';
+      layer.classList.remove('hidden');
+    }
+
+    function updateFailureNoticeFromHistory() {
+      if (!Array.isArray(state.history)) return;
+      if (!state.noticedHistory) {
+        state.history.forEach((op) => {
+          const key = opKey(op);
+          if (key) state.seenOperationKeys[key] = true;
+        });
+        state.noticedHistory = true;
+        return;
+      }
+      let newestFailure = null;
+      for (const op of state.history) {
+        const key = opKey(op);
+        if (!key || state.seenOperationKeys[key]) continue;
+        if (String((op && op.status) || '').toLowerCase() === 'failed') {
+          newestFailure = op;
+          break;
+        }
+      }
+      state.history.forEach((op) => {
+        const key = opKey(op);
+        if (key) state.seenOperationKeys[key] = true;
+      });
+      if (newestFailure) showFailureNotice(newestFailure);
+    }
+
     function completedBadBlocksForGame(g) {
       const op = latestBadBlocksOperationForGame(g, true);
       if (!op) return null;
@@ -3297,6 +3443,10 @@
       const result = (op.phase && op.phase !== 'complete') ? op.phase :
         (op.result || op.status);
       const action = String((op && op.action) || '').toLowerCase();
+      const error = String((op && op.error) || '').toLowerCase();
+      if (action === 'compress' && error.indexOf('output already exists') !== -1) {
+        return 'output already exists';
+      }
       if (action === 'validate-only') {
         if (result === 'bad-blocks-found-not-mounted') return "bad blocks found, didn't mount";
         if (result === 'verified-not-mounted') return "no bad blocks found, didn't mount";
@@ -3354,6 +3504,7 @@
       let url = '/api/gc/compress?titleId=' + encodeURIComponent(op.titleId || '') +
         '&sourcePath=' + encodeURIComponent(op.sourcePath || '') +
         '&format=' + encodeURIComponent(op.format || 'exfat') +
+        '&compressionMode=' + encodeURIComponent(op.compressionMode || 'compressed') +
         '&deletePolicy=' + encodeURIComponent(op.deletePolicy === 'keep' ? 'keep' : 'after') +
         '&skipSpaceCheck=1';
       const targetRoot = String(op.targetRoot || '');
@@ -3464,7 +3615,7 @@
       return [
 	        op.id, op.titleId, op.displayName, op.action, op.status, op.phase,
 	        op.result, op.error, op.sourcePath, op.outputPath, op.sourceKind,
-	        op.targetRoot, op.deletePolicy, op.skipSpaceCheck,
+	        op.targetRoot, op.deletePolicy, op.compressionMode, op.skipSpaceCheck,
         op.repairSummary,
 	        op.createdAt, op.startedAt, op.endedAt,
 	        op.compressionSourceSize, op.compressedSize, op.savedBytes,
@@ -3552,6 +3703,7 @@
 	        gameAprIndexedFromLastState(g),
 	        operationScanSummary((g && g.activeOp) || latestCompressionOperationForGame(g)),
 	        repairResultKeyForGame(g),
+        opKey(latestFailedOperationForGame(g)),
         g && g.activeOp && state.job && state.job.activeId === g.activeOp.id
           ? [
             state.job.badBlocksFound,
@@ -4681,6 +4833,7 @@
 	          updateSpeedSample(job);
 	        }
 	        state.history = history.history || [];
+	        updateFailureNoticeFromHistory();
 	        if (job) {
 	          const nextBusy = !!job.busy;
 	          const nextActiveId = job.activeId ? String(job.activeId) : '';
@@ -5251,8 +5404,9 @@
 	      $('format-stream-space').textContent = destructiveSpaceText(g);
 	      $('compress-usb-panel').classList.toggle('hidden', !effectiveMovingToUsb);
 	      renderCompressUsbSelect();
-      document.querySelectorAll('[data-compress-format], [data-compress-policy], [data-compress-source-policy], [data-compress-destination]').forEach((button) => {
+      document.querySelectorAll('[data-compress-format], [data-compress-mode], [data-compress-policy], [data-compress-source-policy], [data-compress-destination]').forEach((button) => {
         const format = button.getAttribute('data-compress-format');
+        const mode = button.getAttribute('data-compress-mode');
         const policy = button.getAttribute('data-compress-policy');
         const sourcePolicy = button.getAttribute('data-compress-source-policy');
 	        const destination = button.getAttribute('data-compress-destination');
@@ -5261,11 +5415,13 @@
 	          (destination === 'usb' && hideUsbDestination);
         const selected = format
           ? format === state.compressFormat
-          : (destination
-            ? destination === state.compressDestination
-            : (sourcePolicy
-              ? sourcePolicy === state.compressSourcePolicy
-              : policy === state.compressDeletePolicy));
+          : (mode
+            ? mode === state.compressMode
+            : (destination
+              ? destination === state.compressDestination
+              : (sourcePolicy
+                ? sourcePolicy === state.compressSourcePolicy
+                : policy === state.compressDeletePolicy)));
         const storageModeDisabled = !!policy && state.compressSourcePolicy === 'keep';
         const disabled = hiddenDestination ||
           (destination === 'usb' && usbDestinationUnavailable) ||
@@ -5291,6 +5447,7 @@
     function showCompressFormatModal(g) {
       state.compressGame = g;
       state.compressFormat = 'exfat';
+      state.compressMode = 'compressed';
       state.compressDeletePolicy = 'after';
       state.compressSourcePolicy = 'after';
       state.compressSourcePolicyTouched = false;
@@ -5372,6 +5529,7 @@
     async function startSelectedCompress() {
       const g = state.compressGame;
       const format = state.compressFormat;
+      const mode = state.compressMode;
       const destination = state.compressDestination || 'keep';
       const movingElsewhere = destination === 'usb' || destination === 'internal';
       const deletePolicy = state.compressSourcePolicy === 'keep'
@@ -5392,7 +5550,7 @@
       }
       closeCompressFormatModal();
       if (format !== 'pfs' && format !== 'exfat') return;
-      await startAction(g, false, 'compress', format, deletePolicy, usbId, destination);
+      await startAction(g, false, 'compress', format, deletePolicy, mode, usbId, destination);
     }
 
     async function startSelectedUncompress() {
@@ -5429,7 +5587,7 @@
       }
     }
 
-    async function startAction(g, confirmStream, overrideAction, compressFormat, deletePolicy, usbId, compressionDestination) {
+    async function startAction(g, confirmStream, overrideAction, compressFormat, deletePolicy, compressionMode, usbId, compressionDestination) {
       const action = overrideAction || actionFor(g);
       if (!action) return;
       if (!g || !g.sourcePath) return;
@@ -5441,6 +5599,7 @@
       if (action === 'compress') {
         url = '/api/gc/compress?' + gameQuery(g) +
           '&format=' + encodeURIComponent(compressFormat);
+        if (compressionMode) url += '&compressionMode=' + encodeURIComponent(compressionMode);
         if (deletePolicy) url += '&deletePolicy=' + encodeURIComponent(deletePolicy);
         if (compressionDestination && compressionDestination !== 'keep') {
           url += '&destination=' + encodeURIComponent(compressionDestination);
@@ -5483,7 +5642,7 @@
           if (data.canStreamDelete) {
             const msg = 'Not enough free storage for the safer path.\n\nDelete while processing can damage the original source if the operation stops.\n\n' + base;
             if (confirm(msg)) {
-              await startAction(g, true, overrideAction, compressFormat, deletePolicy, usbId, compressionDestination);
+              await startAction(g, true, overrideAction, compressFormat, deletePolicy, compressionMode, usbId, compressionDestination);
               return;
             }
           } else {
@@ -5613,6 +5772,12 @@
           updateCompressModalSelection();
         });
       });
+      document.querySelectorAll('[data-compress-mode]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.compressMode = button.getAttribute('data-compress-mode') || 'compressed';
+          updateCompressModalSelection();
+        });
+      });
       document.querySelectorAll('[data-compress-policy]').forEach((button) => {
         button.addEventListener('click', () => {
           if (button.disabled) return;
@@ -5679,6 +5844,9 @@
       });
       document.addEventListener('click', (event) => {
         hideTerminateReminder();
+        if (state.notice && !event.target.closest('#ui-notice-layer')) {
+          hideUiNotice();
+        }
         const retry = event.target.closest('[data-skip-space-retry]');
         if (retry) {
           event.preventDefault();

@@ -48,6 +48,8 @@ Full release notes: [RELEASE_NOTES_1.0.0.md](RELEASE_NOTES_1.0.0.md).
   state for that exact folder.
 - Removed the compression optimization selector and the old Fast compression
   profile path.
+- Added a Raw only compression mode for APR Emu compatibility. It does not
+  reduce storage use, but can help APR Emu titles run from internal SSD.
 - The terminate button removes the Game Compressor home-screen tile before
   stopping the payload.
 
