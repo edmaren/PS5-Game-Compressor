@@ -415,6 +415,61 @@ line_matches_image_mode(const char *line, const char *image_name) {
 }
 
 static int
+line_matches_image_read_only(const char *line, const char *image_name) {
+  char tmp[512];
+  int n = snprintf(tmp, sizeof(tmp), "%s", line ? line : "");
+  if(n < 0 || (size_t)n >= sizeof(tmp)) return 0;
+
+  char *p = trim_left(tmp);
+  if(!*p || *p == '#' || *p == ';') return 0;
+  char *eq = strchr(p, '=');
+  if(!eq) return 0;
+  *eq = 0;
+  trim_right(p);
+  if(strcasecmp(p, "image_ro")) return 0;
+
+  char *value = trim_left(eq + 1);
+  trim_right(value);
+  return !strcasecmp(value, image_name);
+}
+
+static int
+file_needs_append_newline(const char *path, int *needs_newline,
+                          char *err, size_t err_size) {
+  struct stat st;
+  int fd;
+  char ch = 0;
+  ssize_t nread;
+
+  if(needs_newline) *needs_newline = 0;
+  if(!path || !needs_newline) return 0;
+  if(stat(path, &st) != 0) {
+    if(errno == ENOENT) return 0;
+    set_errno_err(err, err_size, "stat ShadowMount config");
+    return -1;
+  }
+  if(st.st_size <= 0) return 0;
+  fd = open(path, O_RDONLY);
+  if(fd < 0) {
+    set_errno_err(err, err_size, "open ShadowMount config");
+    return -1;
+  }
+  if(lseek(fd, (off_t)-1, SEEK_END) < 0) {
+    close(fd);
+    set_errno_err(err, err_size, "seek ShadowMount config");
+    return -1;
+  }
+  nread = read(fd, &ch, 1);
+  close(fd);
+  if(nread != 1) {
+    set_errno_err(err, err_size, "read ShadowMount config");
+    return -1;
+  }
+  *needs_newline = ch != '\n' && ch != '\r';
+  return 0;
+}
+
+static int
 upsert_image_mode_hint(const char *path_or_name, int read_only,
                        char *err, size_t err_size) {
   char image_name[256];
@@ -488,6 +543,89 @@ done:
   if(in) fclose(in);
   if(out) fclose(out);
   if(rc != 0) unlink(SHADOWMOUNT_CONFIG_TMP);
+  return rc;
+}
+
+int
+gc_shadowmount_ensure_image_read_only(const char *image_path,
+                                      int *already_present,
+                                      char *err,
+                                      size_t err_size) {
+  char image_name[256];
+  char existing[512];
+  FILE *in = NULL;
+  FILE *out = NULL;
+  int found = 0;
+  int needs_newline = 0;
+  int rc = -1;
+
+  if(err && err_size) err[0] = 0;
+  if(already_present) *already_present = 0;
+  if(normalize_image_name(image_path, image_name, sizeof(image_name)) != 0) {
+    set_err(err, err_size, "bad ShadowMount image read-only hint name");
+    return -1;
+  }
+  if(mkdir_if_needed(SHADOWMOUNT_DIR) != 0) {
+    set_errno_err(err, err_size, "create /data/shadowmount");
+    return -1;
+  }
+
+  in = fopen(SHADOWMOUNT_CONFIG, "r");
+  if(in) {
+    while(fgets(existing, sizeof(existing), in)) {
+      if(line_matches_image_read_only(existing, image_name)) {
+        found = 1;
+        break;
+      }
+    }
+    if(ferror(in)) {
+      set_errno_err(err, err_size, "read ShadowMount config");
+      goto done;
+    }
+  } else if(errno != ENOENT) {
+    set_errno_err(err, err_size, "open ShadowMount config");
+    goto done;
+  }
+
+  if(found) {
+    if(already_present) *already_present = 1;
+    rc = 0;
+    goto done;
+  }
+
+  if(file_needs_append_newline(SHADOWMOUNT_CONFIG, &needs_newline,
+                               err, err_size) != 0) {
+    goto done;
+  }
+  out = fopen(SHADOWMOUNT_CONFIG, "a");
+  if(!out) {
+    set_errno_err(err, err_size, "open ShadowMount config");
+    goto done;
+  }
+  if(needs_newline && fputc('\n', out) == EOF) {
+    set_errno_err(err, err_size, "write ShadowMount config");
+    goto done;
+  }
+  if(fprintf(out, "image_ro=%s\n", image_name) < 0) {
+    set_errno_err(err, err_size, "append ShadowMount read-only hint");
+    goto done;
+  }
+  if(fflush(out) != 0 || fsync(fileno(out)) != 0) {
+    set_errno_err(err, err_size, "flush ShadowMount config");
+    goto done;
+  }
+  if(fclose(out) != 0) {
+    out = NULL;
+    set_errno_err(err, err_size, "close ShadowMount config");
+    goto done;
+  }
+  out = NULL;
+  chmod(SHADOWMOUNT_CONFIG, 0666);
+  rc = 0;
+
+done:
+  if(in) fclose(in);
+  if(out) fclose(out);
   return rc;
 }
 

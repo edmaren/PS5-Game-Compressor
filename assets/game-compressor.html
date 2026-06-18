@@ -1936,7 +1936,7 @@
         <div class="format-grid">
           <button class="format-row is-default-choice" type="button" data-compress-destination="keep">
             <div>
-              <div class="history-title">Compress in place</div>
+              <div class="history-title" id="format-destination-keep-title">Compress in place</div>
               <div class="history-meta" id="format-destination-keep">Write next to the current game</div>
             </div>
             <span class="chip">Select</span>
@@ -1950,7 +1950,7 @@
           </button>
           <button class="format-row" type="button" data-compress-destination="usb">
             <div>
-              <div class="history-title">External Storage</div>
+              <div class="history-title" id="format-destination-usb-title">External Storage</div>
               <div class="history-meta" id="format-destination-usb">Write compressed file to the USB target below</div>
             </div>
             <span class="chip">Select</span>
@@ -2454,6 +2454,12 @@
       }
       if (action === 'read-speed-test') {
         return { label: 'Testing Read Speed', className: 'reading' };
+      }
+      if (action === 'set-read-only') {
+        if (phase === 'complete') {
+          return { label: 'Done', className: 'finalizing' };
+        }
+        return { label: 'Updating ShadowMount', className: 'mounting' };
       }
       if (phase === 'mounting' ||
         current.indexOf('requesting shadowmount') !== -1 ||
@@ -3221,6 +3227,7 @@
       if (action === 'extract-image') return 'Extract failed';
       if (action === 'validate-repair' || action === 'validate-only') return 'Validate failed';
       if (action === 'refresh-mount') return 'Mount failed';
+      if (action === 'set-read-only') return 'Set read-only failed';
       if (action === 'build-ampr-index') return 'APR index failed';
       if (action === 'read-speed-test') return 'Read speed failed';
       return 'Operation failed';
@@ -3463,6 +3470,10 @@
       if (action === 'refresh-mount') {
         if (result === 'success') return 'mounted';
         if (result === 'not-mounted') return 'not mounted';
+      }
+      if (action === 'set-read-only') {
+        if (result === 'already-read-only') return 'already read-only';
+        if (result === 'read-only') return 'set read-only';
       }
       if (action === 'read-speed-test') {
         const average = readSpeedAverageText(op);
@@ -3852,6 +3863,7 @@
       if (action === 'make-image') return 'Pending Make Image';
       if (action === 'validate-repair' || action === 'validate-only') return 'Pending Validate';
       if (action === 'refresh-mount') return 'Pending Mount';
+      if (action === 'set-read-only') return 'Pending Set Read Only';
       if (action === 'uncompress') return 'Pending Unpack';
       if (action === 'extract-image') return 'Pending Extract';
       if (action === 'move-to-usb') return 'Pending Move to External Storage';
@@ -4156,8 +4168,11 @@
         actions.push({ id: 'validate-only', label: 'Validate Only' });
         actions.push({ id: 'uncompress', label: 'Uncompress' });
       }
-      if (sourceKind === 'image' && g.isMounted === true) {
-        actions.push({ id: 'extract-image', label: 'Extract to Folder' });
+      if (sourceKind === 'image') {
+        actions.push({ id: 'set-read-only', label: 'Set Read Only' });
+        if (g.isMounted === true) {
+          actions.push({ id: 'extract-image', label: 'Extract to Folder' });
+        }
       }
       if (g.canMoveToUsb || g.canMoveToInternal) {
         actions.push({ id: 'copy-to', label: 'Copy to...' });
@@ -4432,6 +4447,8 @@
         showCompressFormatModal(g, 'make-image');
       } else if (action === 'extract-image') {
         startAction(g, false, 'extract-image');
+      } else if (action === 'set-read-only') {
+        startAction(g, false, 'set-read-only');
       } else if (action === 'build-ampr-index') {
         startAction(g, false, 'build-ampr-index');
       } else if (action === 'move-to' || action === 'move-usb') {
@@ -5532,6 +5549,9 @@
       }
       $('format-safe-space').textContent = safeSpaceText(g);
       $('format-stream-space').textContent = makeImage ? 'Not available for image creation' : destructiveSpaceText(g);
+      $('format-destination-keep-title').textContent = makeImage
+        ? 'Make image in place'
+        : 'Compress in place';
       $('format-destination-keep').textContent = makeImage
         ? 'Write image next to the current game'
         : 'Write next to the current game';
@@ -5543,6 +5563,9 @@
           : (makeImage
 	          ? 'Write image to /data/homebrew'
 	          : 'Write compressed file to /data/homebrew');
+      $('format-destination-usb-title').textContent = makeImage
+        ? 'Make image to external storage'
+        : 'External Storage';
       $('format-destination-usb').textContent = makeImage
         ? 'Write image to the USB target below'
         : 'Write compressed file to the USB target below';
@@ -5760,6 +5783,8 @@
         url = '/api/gc/uncompress?' + gameQuery(g);
       } else if (action === 'extract-image') {
         url = '/api/gc/extract-image?' + gameQuery(g);
+      } else if (action === 'set-read-only') {
+        url = '/api/gc/set-read-only?' + gameQuery(g);
       } else if (action === 'validate-only') {
         url = '/api/gc/validate-only?' + gameQuery(g);
       } else if (action === 'build-ampr-index') {

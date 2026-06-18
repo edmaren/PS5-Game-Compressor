@@ -284,6 +284,7 @@ dispatch_request(const http_request_t *req) {
 		       !strcmp(req->path, "/api/gc/make-image") ||
 		       !strcmp(req->path, "/api/gc/uncompress") ||
 	       !strcmp(req->path, "/api/gc/extract-image") ||
+	       !strcmp(req->path, "/api/gc/set-read-only") ||
 	       !strcmp(req->path, "/api/gc/validate-repair") ||
 	       !strcmp(req->path, "/api/gc/validate-only") ||
        !strcmp(req->path, "/api/gc/refresh-mount") ||

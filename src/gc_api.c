@@ -142,6 +142,7 @@ typedef enum gc_action {
   GC_ACTION_DELETE_GAME_DATA,
   GC_ACTION_READ_SPEED_TEST,
   GC_ACTION_BUILD_AMPR_INDEX,
+  GC_ACTION_SET_READ_ONLY,
 } gc_action_t;
 
 typedef enum gc_op_status {
@@ -339,6 +340,7 @@ action_name(gc_action_t action) {
   if(action == GC_ACTION_DELETE_GAME_DATA) return "delete-game-data";
   if(action == GC_ACTION_READ_SPEED_TEST) return "read-speed-test";
   if(action == GC_ACTION_BUILD_AMPR_INDEX) return "build-ampr-index";
+  if(action == GC_ACTION_SET_READ_ONLY) return "set-read-only";
   return "unknown";
 }
 
@@ -7890,6 +7892,67 @@ read_speed_mount_root(const gc_game_t *game, char *out, size_t out_size,
 }
 
 static int
+run_set_read_only_op(gc_operation_t *op) {
+  gc_game_t game = {0};
+  char err[256] = {0};
+  char scan_err[256] = {0};
+  int already_present = 0;
+
+  gc_checkpoint("set-read-only find game");
+  gc_log("set-read-only start op=%s title=%s", op->id, op->title_id);
+  append_operation_phase(op, "resolving");
+  job_set_phase("resolving", 0, 0, "Resolving selected image");
+  if(find_game_for_operation_source_path(op, &game, 0) != 0 ||
+     game.source_kind != GC_SOURCE_IMAGE) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             job_cancelled() ? "cancelled" : "game is not an image");
+    gc_log("set-read-only failed title=%s err=%s", op->title_id, op->error);
+    return -1;
+  }
+  if(gc_cancel_requested(op->error, sizeof(op->error))) return -1;
+
+  snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
+  snprintf(op->output_path, sizeof(op->output_path), "%s", game.source_path);
+  snprintf(op->source_kind, sizeof(op->source_kind), "%s", "image");
+  job_set_target(game.source_path);
+
+  gc_checkpoint("set-read-only config");
+  append_operation_phase(op, "configuring");
+  job_set_phase("configuring", 0, 0, "Updating ShadowMount config");
+  if(gc_shadowmount_ensure_image_read_only(game.source_path,
+                                           &already_present,
+                                           err, sizeof(err)) != 0) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             err[0] ? err : "could not update ShadowMount config");
+    gc_log("set-read-only failed title=%s err=%s", op->title_id, op->error);
+    return -1;
+  }
+
+  if(already_present) {
+    snprintf(op->result, sizeof(op->result), "%s", "already-read-only");
+    gc_log("set-read-only skipped existing rule title=%s path=%s",
+           op->title_id, game.source_path);
+    return 0;
+  }
+
+  gc_checkpoint("set-read-only scan");
+  append_operation_phase(op, "mounting");
+  job_set_phase("mounting", 0, 0, "Requesting ShadowMount scan");
+  if(gc_shadowmount_request_title_source_scan_cancelable(
+         game.title_id, game.source_path, scan_err, sizeof(scan_err)) != 0) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             scan_err[0] ? scan_err : "could not request ShadowMount scan");
+    gc_log("set-read-only scan failed title=%s err=%s",
+           op->title_id, op->error);
+    return -1;
+  }
+  snprintf(op->result, sizeof(op->result), "%s", "read-only");
+  gc_log("set-read-only complete title=%s path=%s",
+         op->title_id, game.source_path);
+  return 0;
+}
+
+static int
 run_read_speed_test_op(gc_operation_t *op) {
   gc_game_t game = {0};
   gc_read_speed_ctx_t ctx;
@@ -8246,6 +8309,8 @@ operation_thread(void *arg) {
 	    rc = run_read_speed_test_op(op);
 	  } else if(op->action == GC_ACTION_BUILD_AMPR_INDEX) {
 	    rc = run_build_ampr_index_op(op);
+	  } else if(op->action == GC_ACTION_SET_READ_ONLY) {
+	    rc = run_set_read_only_op(op);
 	  }
 
   int cancelled = job_cancelled();
@@ -9071,6 +9136,50 @@ enqueue_extract_image_action(const http_request_t *req) {
   snprintf(op->source_kind, sizeof(op->source_kind), "%s", "image");
   snprintf(op->format, sizeof(op->format), "%s", "folder");
   snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "keep");
+  return enqueue_start_response_locked(req, op);
+}
+
+static int
+enqueue_set_read_only_action(const http_request_t *req) {
+  char title_id[64];
+  char source_path_arg[1024] = "";
+  gc_game_t game;
+  gc_operation_t probe_op = {0};
+
+  if(strcmp(req->method, "POST")) {
+    return serve_error(req, 405, "method not allowed");
+  }
+  const char *arg_err = read_title_source_args(req, title_id,
+                                               sizeof(title_id),
+                                               source_path_arg,
+                                               sizeof(source_path_arg));
+  if(arg_err) return serve_error(req, 400, arg_err);
+  if(title_operation_busy(title_id)) {
+    return serve_error(req, 409, "action already running for this game");
+  }
+
+  memset(&game, 0, sizeof(game));
+  snprintf(probe_op.title_id, sizeof(probe_op.title_id), "%s", title_id);
+  snprintf(probe_op.display_name, sizeof(probe_op.display_name), "%s",
+           title_id);
+  snprintf(probe_op.source_path, sizeof(probe_op.source_path), "%s",
+           source_path_arg);
+  if(find_game_for_operation_source_path(&probe_op, &game, 0) != 0 ||
+     game.source_kind != GC_SOURCE_IMAGE) {
+    return serve_error(req, 400, "game is not an image");
+  }
+
+  pthread_mutex_lock(&g_gc_lock);
+  int response = 0;
+  gc_operation_t *op = alloc_queued_operation_locked(
+      req, title_id, GC_ACTION_SET_READ_ONLY,
+      game.name[0] ? game.name : title_id, &response);
+  if(!op) return response;
+  snprintf(op->source_path, sizeof(op->source_path), "%s", source_path_arg);
+  snprintf(op->output_path, sizeof(op->output_path), "%s", source_path_arg);
+  snprintf(op->source_kind, sizeof(op->source_kind), "%s", "image");
+  snprintf(op->format, sizeof(op->format), "%s", "image");
+  snprintf(op->delete_policy, sizeof(op->delete_policy), "%s", "none");
   return enqueue_start_response_locked(req, op);
 }
 
@@ -10155,6 +10264,9 @@ gc_api_request(const http_request_t *req, const char *url) {
   }
   if(!strcmp(req->path, "/api/gc/extract-image")) {
     return enqueue_extract_image_action(req);
+  }
+  if(!strcmp(req->path, "/api/gc/set-read-only")) {
+    return enqueue_set_read_only_action(req);
   }
   if(!strcmp(req->path, "/api/gc/validate-repair")) {
     return enqueue_action(req, GC_ACTION_VALIDATE_REPAIR);

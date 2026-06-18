@@ -21,6 +21,10 @@ int gc_shadowmount_prepare_image_hints_for_title(const char *title_id,
                                                  int nested_type,
                                                  char *err,
                                                  size_t err_size);
+int gc_shadowmount_ensure_image_read_only(const char *image_path,
+                                          int *already_present,
+                                          char *err,
+                                          size_t err_size);
 int gc_shadowmount_remove_pfsc_hints(const char *outer_path,
                                      const char *nested_name,
                                      int nested_type,
