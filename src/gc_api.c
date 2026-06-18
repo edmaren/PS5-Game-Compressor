@@ -42,7 +42,7 @@
 #define GC_REPAIR_DIR GC_LOG_DIR "/repair"
 #define GC_HISTORY_KEY_SIZE 96
 #define GC_MAX_GAMES 128
-#define GC_MAX_SCAN_ROOTS 128
+#define GC_MAX_SCAN_ROOTS 256
 #define GC_MAX_OPS 64
 #define GC_ARTIFACT_SCAN_TTL_SECONDS 10
 #define GC_CLOSE_WAIT_SECONDS 20
@@ -59,6 +59,8 @@
 #define GC_SYSTEM_APP_BASE "/system_ex/app"
 #define GC_SHADOW_PFSC_BASE "/mnt/shadowmnt/pfsc"
 #define GC_SHADOW_IMAGE_BASE "/mnt/shadowmnt"
+#define GC_SHADOW_CONFIG_FILE "/data/shadowmount/config.ini"
+#define GC_SHADOW_MANUAL_LIST_FILE "/data/shadowmount/manual.lst"
 #define GC_INTERNAL_GAME_ROOT "/data/homebrew"
 #define GC_USB_COUNT 8
 #define GC_STORAGE_TARGET_COUNT (GC_USB_COUNT + 2)
@@ -850,8 +852,17 @@ can_move_to_external_storage(const char *source_path) {
 }
 
 static int paths_equal_ignoring_trailing_slash(const char *a, const char *b);
+static int unmountable_game_folder_segment(const char *name);
+static int path_has_unmountable_game_folder_segment(const char *path);
 
-static const char *const GC_SHADOW_SOURCE_ROOTS[] = {
+typedef struct gc_source_roots {
+  char roots[GC_MAX_SCAN_ROOTS][1024];
+  size_t count;
+  uint32_t scan_depth;
+  int custom_scanpaths;
+} gc_source_roots_t;
+
+static const char *const GC_SHADOW_DEFAULT_SOURCE_ROOTS[] = {
   "/data/homebrew",
   "/data/etaHEN/games",
   "/mnt/ext0",
@@ -887,6 +898,184 @@ static const char *const GC_SHADOW_SOURCE_ROOTS[] = {
   NULL,
 };
 
+static char *
+trim_ascii_inplace(char *s) {
+  char *end;
+  if(!s) return s;
+  while(*s && isspace((unsigned char)*s)) s++;
+  end = s + strlen(s);
+  while(end > s && isspace((unsigned char)end[-1])) end--;
+  *end = 0;
+  if((s[0] == '"' || s[0] == '\'') && end > s + 1 && end[-1] == s[0]) {
+    s++;
+    end[-1] = 0;
+  }
+  return s;
+}
+
+static int
+parse_ini_line_gc(char *line, char **key_out, char **value_out) {
+  char *s = trim_ascii_inplace(line);
+  char *eq;
+  if(!s || !s[0] || s[0] == '#' || s[0] == ';') return 0;
+  eq = strchr(s, '=');
+  if(!eq) return 0;
+  *eq++ = 0;
+  if(key_out) *key_out = trim_ascii_inplace(s);
+  if(value_out) *value_out = trim_ascii_inplace(eq);
+  return key_out && *key_out && (*key_out)[0] && value_out && *value_out;
+}
+
+static int
+parse_bool_ini_gc(const char *value, int *out) {
+  if(!value || !out) return 0;
+  if(!strcasecmp(value, "1") || !strcasecmp(value, "true") ||
+     !strcasecmp(value, "yes") || !strcasecmp(value, "on")) {
+    *out = 1;
+    return 1;
+  }
+  if(!strcasecmp(value, "0") || !strcasecmp(value, "false") ||
+     !strcasecmp(value, "no") || !strcasecmp(value, "off")) {
+    *out = 0;
+    return 1;
+  }
+  return 0;
+}
+
+static int
+parse_scan_depth_ini_gc(const char *value, uint32_t *out) {
+  char *end = NULL;
+  unsigned long parsed;
+  if(!value || !value[0] || !out) return 0;
+  errno = 0;
+  parsed = strtoul(value, &end, 10);
+  if(errno != 0 || !end || *end != 0 || parsed < 1 || parsed > 2) return 0;
+  *out = (uint32_t)parsed;
+  return 1;
+}
+
+static void
+source_roots_add(gc_source_roots_t *roots, const char *path) {
+  char normalized[1024];
+  size_t len;
+  if(!roots || !path || !path[0] || roots->count >= GC_MAX_SCAN_ROOTS ||
+     !path_is_safe(path) || path_is_system_app_path(path) ||
+     path_has_unmountable_game_folder_segment(path) ||
+     path_under_root(path, GC_SHADOW_IMAGE_BASE)) {
+    return;
+  }
+  if(snprintf(normalized, sizeof(normalized), "%s", path) >=
+     (int)sizeof(normalized)) {
+    return;
+  }
+  len = strlen(normalized);
+  while(len > 1 && normalized[len - 1] == '/') normalized[--len] = 0;
+  for(size_t i = 0; i < roots->count; i++) {
+    if(paths_equal_ignoring_trailing_slash(roots->roots[i], normalized)) return;
+  }
+  snprintf(roots->roots[roots->count++], sizeof(roots->roots[0]), "%s",
+           normalized);
+}
+
+static void
+source_roots_add_parent(gc_source_roots_t *roots, const char *path) {
+  char parent[1024];
+  if(!path || !path[0] || path_parent(path, parent, sizeof(parent)) != 0) {
+    return;
+  }
+  source_roots_add(roots, parent);
+}
+
+static void
+source_roots_add_default(gc_source_roots_t *roots) {
+  for(int i = 0; GC_SHADOW_DEFAULT_SOURCE_ROOTS[i]; i++) {
+    source_roots_add(roots, GC_SHADOW_DEFAULT_SOURCE_ROOTS[i]);
+  }
+}
+
+static void
+source_roots_expand_one_child_level(gc_source_roots_t *roots) {
+  size_t initial_count = roots ? roots->count : 0;
+  for(size_t i = 0; roots && i < initial_count; i++) {
+    DIR *d = opendir(roots->roots[i]);
+    struct dirent *ent;
+    if(!d) continue;
+    while((ent = readdir(d)) && roots->count < GC_MAX_SCAN_ROOTS) {
+      char child[1024];
+      struct stat st;
+      if(!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+      if(!upload_segment_safe(ent->d_name)) continue;
+      if(unmountable_game_folder_segment(ent->d_name)) continue;
+      if(snprintf(child, sizeof(child), "%s/%s", roots->roots[i],
+                  ent->d_name) >= (int)sizeof(child)) {
+        continue;
+      }
+      if(stat(child, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+      source_roots_add(roots, child);
+    }
+    closedir(d);
+  }
+}
+
+static void
+source_roots_add_manual_entries(gc_source_roots_t *roots) {
+  FILE *f = fopen(GC_SHADOW_MANUAL_LIST_FILE, "r");
+  char line[1024];
+  if(!f) return;
+  while(fgets(line, sizeof(line), f)) {
+    char *path = trim_ascii_inplace(line);
+    if(!path || !path[0] || path[0] == '#' || path[0] == ';') continue;
+    if(!ends_with_ci(path, ".ffpfsc")) continue;
+    source_roots_add_parent(roots, path);
+  }
+  fclose(f);
+}
+
+static void
+shadow_source_roots_build(gc_source_roots_t *roots) {
+  FILE *f;
+  char line[1024];
+  uint32_t scan_depth = 1;
+  int custom_scanpaths = 0;
+
+  if(!roots) return;
+  memset(roots, 0, sizeof(*roots));
+  roots->scan_depth = scan_depth;
+
+  f = fopen(GC_SHADOW_CONFIG_FILE, "r");
+  if(f) {
+    while(fgets(line, sizeof(line), f)) {
+      char *key = NULL;
+      char *value = NULL;
+      if(!parse_ini_line_gc(line, &key, &value)) continue;
+      if(!strcasecmp(key, "scanpath")) {
+        if(!custom_scanpaths) {
+          roots->count = 0;
+          custom_scanpaths = 1;
+        }
+        source_roots_add(roots, value);
+      } else if(!strcasecmp(key, "scan_depth")) {
+        (void)parse_scan_depth_ini_gc(value, &scan_depth);
+      } else if(!strcasecmp(key, "recursive_scan")) {
+        int enabled = 0;
+        if(parse_bool_ini_gc(value, &enabled) && enabled) scan_depth = 2;
+      }
+    }
+    fclose(f);
+  }
+
+  roots->custom_scanpaths = custom_scanpaths;
+  roots->scan_depth = scan_depth;
+  if(!custom_scanpaths || roots->count == 0) {
+    source_roots_add_default(roots);
+    roots->custom_scanpaths = 0;
+  }
+  if(scan_depth > 1) {
+    source_roots_expand_one_child_level(roots);
+  }
+  source_roots_add_manual_entries(roots);
+}
+
 static int
 unmountable_game_folder_segment(const char *name) {
   if(!name || !name[0]) return 0;
@@ -921,11 +1110,13 @@ path_has_unmountable_game_folder_segment(const char *path) {
 
 static int
 path_is_shadowmount_game_root(const char *path) {
+  gc_source_roots_t roots;
   if(!path || !path[0] || path_has_unmountable_game_folder_segment(path)) {
     return 0;
   }
-  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
-    if(paths_equal_ignoring_trailing_slash(path, GC_SHADOW_SOURCE_ROOTS[i])) {
+  shadow_source_roots_build(&roots);
+  for(size_t i = 0; i < roots.count; i++) {
+    if(paths_equal_ignoring_trailing_slash(path, roots.roots[i])) {
       return 1;
     }
   }
@@ -1142,8 +1333,10 @@ find_outer_pfsc_candidate(const char *root, const char *title_id,
 static int
 find_outer_pfsc_by_shadow_hash(const char *title_id, uint32_t shadow_hash,
                                char *out, size_t out_size) {
-  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
-    if(find_outer_pfsc_candidate(GC_SHADOW_SOURCE_ROOTS[i], title_id,
+  gc_source_roots_t roots;
+  shadow_source_roots_build(&roots);
+  for(size_t i = 0; i < roots.count; i++) {
+    if(find_outer_pfsc_candidate(roots.roots[i], title_id,
                                  shadow_hash, out, out_size) == 0) {
       return 0;
     }
@@ -1156,10 +1349,12 @@ find_exact_pfsc_by_title(const char *title_id, char *out, size_t out_size) {
   char candidate[1024];
   char err[256] = {0};
   struct stat st;
+  gc_source_roots_t roots;
   if(!valid_title_id(title_id) || !out || out_size == 0) return -1;
-  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
+  shadow_source_roots_build(&roots);
+  for(size_t i = 0; i < roots.count; i++) {
     int n = snprintf(candidate, sizeof(candidate), "%s/%s.ffpfsc",
-                     GC_SHADOW_SOURCE_ROOTS[i], title_id);
+                     roots.roots[i], title_id);
     if(n < 0 || (size_t)n >= sizeof(candidate)) continue;
     if(stat(candidate, &st) != 0 || !S_ISREG(st.st_mode)) continue;
     pfs_decompress_info_t info = {0};
@@ -1266,9 +1461,11 @@ cleanup_force_remount_temps_in_root(const char *root) {
 static void
 cleanup_force_remount_temps_on_startup(void) {
   int restored = 0;
+  gc_source_roots_t roots;
 
-  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
-    restored += cleanup_force_remount_temps_in_root(GC_SHADOW_SOURCE_ROOTS[i]);
+  shadow_source_roots_build(&roots);
+  for(size_t i = 0; i < roots.count; i++) {
+    restored += cleanup_force_remount_temps_in_root(roots.roots[i]);
   }
   if(restored > 0) {
     char err[256] = {0};
@@ -1315,9 +1512,11 @@ cleanup_delete_pending_temps_in_root(const char *root) {
 static void
 cleanup_delete_pending_temps_on_startup(void) {
   int removed = 0;
+  gc_source_roots_t roots;
 
-  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
-    removed += cleanup_delete_pending_temps_in_root(GC_SHADOW_SOURCE_ROOTS[i]);
+  shadow_source_roots_build(&roots);
+  for(size_t i = 0; i < roots.count; i++) {
+    removed += cleanup_delete_pending_temps_in_root(roots.roots[i]);
   }
   removed += cleanup_delete_pending_temps_in_root(GC_INTERNAL_GAME_ROOT);
   for(size_t i = 0; i < GC_STORAGE_TARGET_COUNT; i++) {
@@ -1846,6 +2045,7 @@ infer_compression_source_size_from_known_roots(const char *title_id,
   char parent[1024];
   char candidate[1024];
   uint64_t best = 0;
+  gc_source_roots_t roots;
 
   if(!valid_title_id(title_id) || !image_path || !image_path[0]) return 0;
 
@@ -1858,9 +2058,10 @@ infer_compression_source_size_from_known_roots(const char *title_id,
     }
   }
 
-  for(size_t i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
+  shadow_source_roots_build(&roots);
+  for(size_t i = 0; i < roots.count; i++) {
     int n = snprintf(candidate, sizeof(candidate), "%s/%s-app",
-                     GC_SHADOW_SOURCE_ROOTS[i], title_id);
+                     roots.roots[i], title_id);
     uint64_t size = 0;
     if(n < 0 || (size_t)n >= sizeof(candidate)) continue;
     size = folder_size_for_compression_stats(candidate);
@@ -2484,12 +2685,79 @@ game_source_matches(const gc_game_t *g, const char *source_path) {
 }
 
 static int
+compressed_source_shadow_hash(const gc_game_t *g, uint32_t *hash_out) {
+  if(!g || !hash_out || g->source_kind != GC_SOURCE_COMPRESSED ||
+     !ends_with_ci(g->source_path, ".ffpfsc")) {
+    return -1;
+  }
+  *hash_out = fnv1a32_string(g->source_path);
+  return 0;
+}
+
+static int
+mounted_shadow_pfsc_hash(const gc_game_t *g, uint32_t *hash_out) {
+  if(!g || !hash_out || !valid_title_id(g->title_id)) return -1;
+  return shadow_pfsc_hash_from_path(g->source_path, g->title_id, hash_out);
+}
+
+static int
+games_reference_same_shadow_pfsc(const gc_game_t *a, const gc_game_t *b) {
+  uint32_t a_hash = 0;
+  uint32_t b_hash = 0;
+  if(!a || !b || !valid_title_id(a->title_id) ||
+     strcmp(a->title_id, b->title_id)) {
+    return 0;
+  }
+  if(compressed_source_shadow_hash(a, &a_hash) == 0 &&
+     mounted_shadow_pfsc_hash(b, &b_hash) == 0 &&
+     a_hash == b_hash) {
+    return 1;
+  }
+  if(compressed_source_shadow_hash(b, &b_hash) == 0 &&
+     mounted_shadow_pfsc_hash(a, &a_hash) == 0 &&
+     a_hash == b_hash) {
+    return 1;
+  }
+  return 0;
+}
+
+static void
+merge_mount_state(gc_game_t *dst, const gc_game_t *src) {
+  if(!dst || !src) return;
+  if(src->is_mounted) {
+    dst->is_mounted = 1;
+    snprintf(dst->mount_status, sizeof(dst->mount_status), "%s",
+             src->mount_status[0] ? src->mount_status : "mounted");
+  }
+  if(!dst->mount_path[0] && src->mount_path[0]) {
+    snprintf(dst->mount_path, sizeof(dst->mount_path), "%s", src->mount_path);
+  }
+  if(!dst->image_path[0] && src->image_path[0]) {
+    snprintf(dst->image_path, sizeof(dst->image_path), "%s", src->image_path);
+  }
+}
+
+static int
+candidate_preferred_for_existing_instance(const gc_game_t *existing,
+                                          const gc_game_t *candidate) {
+  int same_shadow_pfsc;
+  if(!existing || !candidate) return 0;
+  same_shadow_pfsc = games_reference_same_shadow_pfsc(existing, candidate);
+  if(same_shadow_pfsc) {
+    return existing->source_kind != GC_SOURCE_COMPRESSED &&
+        candidate->source_kind == GC_SOURCE_COMPRESSED;
+  }
+  return candidate->is_mounted && !existing->is_mounted;
+}
+
+static int
 game_list_find_instance(const gc_game_t *games, size_t count,
                         const gc_game_t *candidate) {
   if(!games || !candidate || !candidate->source_path[0]) return -1;
   for(size_t i = 0; i < count; i++) {
-    if(games[i].source_kind == candidate->source_kind &&
-       game_source_matches(&games[i], candidate->source_path)) {
+    if((games[i].source_kind == candidate->source_kind &&
+        game_source_matches(&games[i], candidate->source_path)) ||
+       games_reference_same_shadow_pfsc(&games[i], candidate)) {
       return (int)i;
     }
   }
@@ -2535,8 +2803,13 @@ append_game_unique_by_source(gc_game_t *games, size_t max_games,
   }
   existing = game_list_find_instance(games, *count, candidate);
   if(existing >= 0) {
-    if(candidate->is_mounted && !games[existing].is_mounted) {
-      games[existing] = *candidate;
+    if(candidate_preferred_for_existing_instance(&games[existing],
+                                                 candidate)) {
+      gc_game_t merged = *candidate;
+      merge_mount_state(&merged, &games[existing]);
+      games[existing] = merged;
+    } else {
+      merge_mount_state(&games[existing], candidate);
     }
     return 0;
   }
@@ -2573,10 +2846,12 @@ scan_roots_build(const gc_game_t *mounted_games, size_t mounted_count,
                  gc_scan_roots_t *roots) {
   gc_usb_target_t usb[GC_STORAGE_TARGET_COUNT];
   size_t usb_count = 0;
+  gc_source_roots_t source_roots;
   memset(roots, 0, sizeof(*roots));
 
-  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
-    scan_roots_add(roots, GC_SHADOW_SOURCE_ROOTS[i]);
+  shadow_source_roots_build(&source_roots);
+  for(size_t i = 0; i < source_roots.count; i++) {
+    scan_roots_add(roots, source_roots.roots[i]);
   }
   scan_roots_add(roots, GC_INTERNAL_GAME_ROOT);
   discover_usb_targets(usb, GC_STORAGE_TARGET_COUNT, &usb_count);
@@ -3672,6 +3947,7 @@ delete_source_after_success_with_title(const char *path, gc_source_kind_t kind,
 
 static int
 game_source_delete_allowed(const gc_game_t *game) {
+  gc_source_roots_t roots;
   if(!game || game->source_kind == GC_SOURCE_UNKNOWN ||
      !path_is_safe(game->source_path) ||
      path_under_root(game->source_path, GC_SHADOW_IMAGE_BASE) ||
@@ -3679,8 +3955,9 @@ game_source_delete_allowed(const gc_game_t *game) {
      path_is_system_app_path(game->source_path)) {
     return 0;
   }
-  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
-    if(path_under_root(game->source_path, GC_SHADOW_SOURCE_ROOTS[i])) {
+  shadow_source_roots_build(&roots);
+  for(size_t i = 0; i < roots.count; i++) {
+    if(path_under_root(game->source_path, roots.roots[i])) {
       return 1;
     }
   }
@@ -4405,8 +4682,12 @@ mount_switch_hide_competitors(gc_operation_t *op, const gc_game_t *selected,
     return -1;
   }
   if(gc_cancel_requested(err, err_size)) goto done;
-  for(int i = 0; GC_SHADOW_SOURCE_ROOTS[i]; i++) {
-    scan_roots_add(&roots, GC_SHADOW_SOURCE_ROOTS[i]);
+  {
+    gc_source_roots_t source_roots;
+    shadow_source_roots_build(&source_roots);
+    for(size_t i = 0; i < source_roots.count; i++) {
+      scan_roots_add(&roots, source_roots.roots[i]);
+    }
   }
   for(size_t i = 0; i < GC_STORAGE_TARGET_COUNT; i++) {
     scan_roots_add(&roots, GC_STORAGE_TARGETS[i].root);

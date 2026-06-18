@@ -1409,8 +1409,30 @@
       margin-bottom: 14px;
     }
 
+    .format-grid.is-three-up {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
     .format-grid .format-row {
       margin-bottom: 0;
+    }
+
+    .format-grid.is-three-up .format-row {
+      grid-template-columns: minmax(0, 1fr);
+      min-height: 80px;
+      padding: 12px 12px 9px;
+      align-items: start;
+    }
+
+    .format-grid.is-three-up .history-title {
+      font-size: 14px;
+      line-height: 1.22;
+    }
+
+    .format-grid.is-three-up .history-meta {
+      margin-top: 5px;
+      font-size: 12px;
+      line-height: 1.3;
     }
 
     .format-row.is-hidden,
@@ -1785,7 +1807,8 @@
         grid-template-columns: minmax(0, 1fr) 56px;
       }
 
-      .format-grid {
+      .format-grid,
+      .format-grid.is-three-up {
         grid-template-columns: minmax(0, 1fr);
       }
 
@@ -1954,38 +1977,25 @@
           <div class="usb-picker" id="compress-usb-picker"></div>
           <div class="compress-usb-meta" id="compress-usb-meta"></div>
         </div>
-        <div class="format-section-title" id="compress-source-title">Original source</div>
-        <div class="format-grid" id="compress-source-grid">
-          <button class="format-row" type="button" data-compress-source-policy="keep">
+        <div class="format-section-title" id="compress-source-title">Original Handling</div>
+        <div class="format-grid is-three-up" id="compress-source-grid">
+          <button class="format-row" type="button" data-compress-handling="keep">
             <div>
-              <div class="history-title">Keep both</div>
-              <div class="history-meta">Leave the original source in its current location</div>
+              <div class="history-title">Keep original</div>
+              <div class="history-meta">Original remains untouched</div>
             </div>
-            <span class="chip">Select</span>
           </button>
-          <button class="format-row is-default-choice" type="button" data-compress-source-policy="after">
+          <button class="format-row is-default-choice" type="button" data-compress-handling="after">
             <div>
-              <div class="history-title">Delete after completion</div>
-              <div class="history-meta">Remove the original after the compressed file is verified</div>
+              <div class="history-title">Delete after verified</div>
+              <div class="history-meta" id="format-safe-space">Requires full-size free space</div>
             </div>
-            <span class="chip">Select</span>
           </button>
-        </div>
-        <div class="format-section-title">Storage Mode</div>
-        <div class="format-grid">
-          <button class="format-row is-default-choice" type="button" data-compress-policy="after">
-            <div>
-              <div class="history-title">Safe</div>
-              <div class="history-meta" id="format-safe-space">Keeps the original until the new file is complete</div>
-            </div>
-            <span class="chip">Select</span>
-          </button>
-          <button class="format-row" type="button" data-compress-policy="stream">
+          <button class="format-row" type="button" data-compress-handling="stream">
             <div>
               <div class="history-title">Destructive</div>
-              <div class="history-meta" id="format-stream-space">Deletes while writing to use less free space</div>
+              <div class="history-meta" id="format-stream-space">Requires less free space</div>
             </div>
-            <span class="chip">Select</span>
           </button>
         </div>
         <div class="modal-actions">
@@ -5326,41 +5336,41 @@
 
     function safeSpaceText(g) {
       if (state.compressSourcePolicy === 'keep') {
-        return 'Not needed while keeping the original source';
+        return 'Original remains untouched';
       }
       if (state.compressDestination === 'usb') {
         const usb = selectedCompressUsb();
-        if (usb) return 'Writes to ' + usbTargetLabel(usb) + '; original is removed after verification';
-        return 'Writes to selected storage; original is removed after verification';
+        if (usb) return 'Requires target free space; deletes after verification';
+        return 'Requires target free space; deletes after verification';
       }
       if (state.compressDestination === 'internal') {
-        return 'Writes to Internal SSD; original is removed after verification';
+        return 'Requires SSD free space; deletes after verification';
       }
-      if (!g || g.sizePending || !Number(g.requiredBytes || 0)) {
-        return 'Keeps the original until verified; needs measured source-size free';
+      const requiredBytes = Number((g && g.requiredBytes) || 0) ||
+        Number((g && g.sourceSize) || 0);
+      if (!g || !requiredBytes) {
+        return 'Measuring required free space';
       }
-      const extra = Number(g.extraBytes || 0);
-      const required = modalSizeText(g.requiredBytes || 0);
+      const freeBytes = Number(g.freeBytes || 0);
+      const extra = Number(g.extraBytes || 0) ||
+        (freeBytes > 0 && requiredBytes > freeBytes ? requiredBytes - freeBytes : 0);
+      const required = modalSizeText(requiredBytes);
       return extra > 0
-        ? 'Keeps the original until verified; needs ' + required + ' free (' + modalSizeText(extra) + ' more needed)'
-        : 'Keeps the original until verified; needs ' + required + ' free';
+        ? 'Requires ' + required + ' free; ' + modalSizeText(extra) + ' short'
+        : 'Requires ' + required + ' free; deletes after verification';
     }
 
     function destructiveSpaceText(g) {
-      if (state.compressSourcePolicy === 'keep') {
-        return 'Not available while keeping the original source';
-      }
       if (state.compressDestination === 'usb' ||
         state.compressDestination === 'internal') {
-        return 'Not available when moving from one storage to another';
+        return 'Requires same storage';
       }
       const minFree = Number((g && g.streamMinFreeBytes) || 1073741824);
-      if (!g || !g.canStreamDelete) return 'Not available for image-file compression';
+      if (!g || !g.canStreamDelete) return 'Requires folder source';
       const extra = Number(g.streamExtraBytes || 0);
-      const base = 'Deletes while writing; cannot cancel after start; needs ' +
-        modalSizeText(minFree) + ' free';
+      const base = 'Requires ' + modalSizeText(minFree) + ' free; deletes while writing';
       return extra > 0
-        ? base + ' (' + modalSizeText(extra) + ' more needed)'
+        ? base + '; ' + modalSizeText(extra) + ' short'
         : base;
     }
 
@@ -5404,40 +5414,35 @@
 	      $('format-stream-space').textContent = destructiveSpaceText(g);
 	      $('compress-usb-panel').classList.toggle('hidden', !effectiveMovingToUsb);
 	      renderCompressUsbSelect();
-      document.querySelectorAll('[data-compress-format], [data-compress-mode], [data-compress-policy], [data-compress-source-policy], [data-compress-destination]').forEach((button) => {
+      document.querySelectorAll('[data-compress-format], [data-compress-mode], [data-compress-handling], [data-compress-destination]').forEach((button) => {
         const format = button.getAttribute('data-compress-format');
         const mode = button.getAttribute('data-compress-mode');
-        const policy = button.getAttribute('data-compress-policy');
-        const sourcePolicy = button.getAttribute('data-compress-source-policy');
+        const handling = button.getAttribute('data-compress-handling');
 	        const destination = button.getAttribute('data-compress-destination');
 	        const hiddenDestination =
 	          (destination === 'internal' && !showInternal) ||
 	          (destination === 'usb' && hideUsbDestination);
+        const selectedHandling =
+          state.compressSourcePolicy === 'keep' ? 'keep' : state.compressDeletePolicy;
         const selected = format
           ? format === state.compressFormat
           : (mode
             ? mode === state.compressMode
             : (destination
               ? destination === state.compressDestination
-              : (sourcePolicy
-                ? sourcePolicy === state.compressSourcePolicy
-                : policy === state.compressDeletePolicy)));
-        const storageModeDisabled = !!policy && state.compressSourcePolicy === 'keep';
+              : handling === selectedHandling));
         const disabled = hiddenDestination ||
           (destination === 'usb' && usbDestinationUnavailable) ||
-          storageModeDisabled ||
-          (policy === 'stream' && destructiveUnavailable);
+          (handling === 'stream' && destructiveUnavailable);
         button.classList.toggle('is-hidden', hiddenDestination);
         button.disabled = disabled;
         button.classList.toggle('is-disabled', disabled);
         button.classList.toggle('is-selected', selected && !disabled);
         const chip = button.querySelector('.chip');
         if (chip) {
-          chip.textContent = storageModeDisabled
-            ? 'Not needed'
-            : (disabled ? 'Unavailable' : (selected ? 'Selected' : 'Select'));
+          chip.textContent = disabled ? 'Unavailable' : (selected ? 'Selected' : 'Select');
           chip.classList.toggle('run', selected && !disabled);
-          chip.classList.toggle('bad', disabled && !storageModeDisabled);
+          chip.classList.toggle('bad', disabled);
         }
       });
       $('format-start').disabled =
@@ -5778,17 +5783,17 @@
           updateCompressModalSelection();
         });
       });
-      document.querySelectorAll('[data-compress-policy]').forEach((button) => {
+      document.querySelectorAll('[data-compress-handling]').forEach((button) => {
         button.addEventListener('click', () => {
           if (button.disabled) return;
-          state.compressDeletePolicy = button.getAttribute('data-compress-policy') || 'after';
-          updateCompressModalSelection();
-        });
-      });
-      document.querySelectorAll('[data-compress-source-policy]').forEach((button) => {
-        button.addEventListener('click', () => {
-          if (button.disabled) return;
-          state.compressSourcePolicy = button.getAttribute('data-compress-source-policy') || 'after';
+          const handling = button.getAttribute('data-compress-handling') || 'after';
+          if (handling === 'keep') {
+            state.compressSourcePolicy = 'keep';
+            state.compressDeletePolicy = 'after';
+          } else {
+            state.compressSourcePolicy = 'after';
+            state.compressDeletePolicy = handling === 'stream' ? 'stream' : 'after';
+          }
           state.compressSourcePolicyTouched = true;
           updateCompressModalSelection();
         });
