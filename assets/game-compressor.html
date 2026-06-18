@@ -1932,43 +1932,26 @@
             <span class="chip">Select</span>
           </button>
         </div>
-        <div class="format-section-title">Compression Mode</div>
-        <div class="format-grid">
-          <button class="format-row is-default-choice" type="button" data-compress-mode="compressed">
-            <div>
-              <div class="history-title">Compressed</div>
-              <div class="history-meta">Reduces storage use when game data compresses well</div>
-            </div>
-            <span class="chip">Select</span>
-          </button>
-          <button class="format-row" type="button" data-compress-mode="raw">
-            <div>
-              <div class="history-title">Raw only</div>
-              <div class="history-meta">Does not reduce space. Helps APR Emu titles run from internal SSD</div>
-            </div>
-            <span class="chip">Select</span>
-          </button>
-        </div>
         <div class="format-section-title">Destination</div>
         <div class="format-grid">
           <button class="format-row is-default-choice" type="button" data-compress-destination="keep">
             <div>
               <div class="history-title">Compress in place</div>
-              <div class="history-meta">Write next to the current game</div>
+              <div class="history-meta" id="format-destination-keep">Write next to the current game</div>
             </div>
             <span class="chip">Select</span>
           </button>
           <button class="format-row" type="button" data-compress-destination="internal">
             <div>
               <div class="history-title">Internal SSD</div>
-              <div class="history-meta">Write compressed file to /data/homebrew</div>
+              <div class="history-meta" id="format-destination-internal">Write compressed file to /data/homebrew</div>
             </div>
             <span class="chip">Select</span>
           </button>
           <button class="format-row" type="button" data-compress-destination="usb">
             <div>
               <div class="history-title">External Storage</div>
-              <div class="history-meta">Write compressed file to the USB target below</div>
+              <div class="history-meta" id="format-destination-usb">Write compressed file to the USB target below</div>
             </div>
             <span class="chip">Select</span>
           </button>
@@ -2134,8 +2117,8 @@
       moveGame: null,
       moveMode: 'move',
       compressGame: null,
+      compressAction: 'compress',
       compressFormat: 'exfat',
-      compressMode: 'compressed',
       compressDeletePolicy: 'after',
       compressSourcePolicy: 'after',
       compressSourcePolicyTouched: false,
@@ -2504,6 +2487,9 @@
       if (phase === 'copying') {
         return { label: 'Repacking', className: 'repacking' };
       }
+      if (action === 'make-image') {
+        return { label: 'Making Image', className: 'moving' };
+      }
       if (action === 'uncompress') {
         return { label: 'Unpacking', className: 'unpacking' };
       }
@@ -2808,9 +2794,10 @@
 	      if (!operationChangesGameState(op)) return '';
 	      const source = operationSourceLabel(op);
 	      const target = operationTargetLabel(op);
-	      if (!target || source === target) {
-	        if (action === 'compress') return source + ' compressed in place';
-	        if (action === 'uncompress') return source + ' unpacked in place';
+      if (!target || source === target) {
+        if (action === 'compress') return source + ' compressed in place';
+        if (action === 'make-image') return source + ' made into image';
+        if (action === 'uncompress') return source + ' unpacked in place';
 	        if (action === 'extract-image') return source + ' extracted to folder';
 	        return source;
 	      }
@@ -3002,6 +2989,7 @@
     function operationChangesGameState(op) {
       const action = String((op && op.action) || '').toLowerCase();
       return action === 'compress' ||
+        action === 'make-image' ||
         action === 'uncompress' ||
         action === 'extract-image' ||
         action === 'move-to-usb' ||
@@ -3034,6 +3022,9 @@
       const output = normalizedPath(op.outputPath);
       if (action === 'compress') {
         return g.sourceKind === 'compressed' ? output === current : source === current;
+      }
+      if (action === 'make-image') {
+        return g.sourceKind === 'image' ? output === current : source === current;
       }
       return source === current || output === current;
     }
@@ -3223,6 +3214,7 @@
     function failureNoticeTitle(op) {
       const action = String((op && op.action) || 'operation').toLowerCase();
       if (action === 'compress') return 'Compress failed';
+      if (action === 'make-image') return 'Make image failed';
       if (action === 'uncompress') return 'Unpack failed';
       if (action === 'extract-image') return 'Extract failed';
       if (action === 'validate-repair' || action === 'validate-only') return 'Validate failed';
@@ -3514,7 +3506,6 @@
       let url = '/api/gc/compress?titleId=' + encodeURIComponent(op.titleId || '') +
         '&sourcePath=' + encodeURIComponent(op.sourcePath || '') +
         '&format=' + encodeURIComponent(op.format || 'exfat') +
-        '&compressionMode=' + encodeURIComponent(op.compressionMode || 'compressed') +
         '&deletePolicy=' + encodeURIComponent(op.deletePolicy === 'keep' ? 'keep' : 'after') +
         '&skipSpaceCheck=1';
       const targetRoot = String(op.targetRoot || '');
@@ -3625,7 +3616,7 @@
       return [
 	        op.id, op.titleId, op.displayName, op.action, op.status, op.phase,
 	        op.result, op.error, op.sourcePath, op.outputPath, op.sourceKind,
-	        op.targetRoot, op.deletePolicy, op.compressionMode, op.skipSpaceCheck,
+	        op.targetRoot, op.deletePolicy, op.skipSpaceCheck,
         op.repairSummary,
 	        op.createdAt, op.startedAt, op.endedAt,
 	        op.compressionSourceSize, op.compressedSize, op.savedBytes,
@@ -3855,7 +3846,8 @@
 
 	    function pendingOperationLabel(op) {
 	      const action = String((op && op.action) || '').toLowerCase();
-	      if (action === 'compress') return 'Pending Compress';
+      if (action === 'compress') return 'Pending Compress';
+      if (action === 'make-image') return 'Pending Make Image';
       if (action === 'validate-repair' || action === 'validate-only') return 'Pending Validate';
       if (action === 'refresh-mount') return 'Pending Mount';
       if (action === 'uncompress') return 'Pending Unpack';
@@ -4155,6 +4147,7 @@
       const actions = [];
       const sourceKind = String(g.sourceKind || '').toLowerCase();
       if (sourceKind === 'folder') {
+        actions.push({ id: 'make-image', label: 'Make Image' });
         actions.push({ id: 'build-ampr-index', label: 'Build AMPR Index' });
       }
       if (sourceKind === 'compressed' || actionFor(g) === 'validate-repair') {
@@ -4437,6 +4430,8 @@
         startAction(g, false, 'validate-only');
       } else if (action === 'uncompress') {
         showUncompressModal(g);
+      } else if (action === 'make-image') {
+        showCompressFormatModal(g, 'make-image');
       } else if (action === 'extract-image') {
         startAction(g, false, 'extract-image');
       } else if (action === 'build-ampr-index') {
@@ -5386,6 +5381,7 @@
 
     function updateCompressModalSelection() {
       const g = state.compressGame;
+      const makeImage = state.compressAction === 'make-image';
       const sourceStorage = String((g && g.storage) || '').toLowerCase();
       const showInternal = sourceStorage !== 'internal';
       const showUsb = !storageIsExternal(sourceStorage);
@@ -5403,34 +5399,40 @@
       const effectiveMovingToUsb = state.compressDestination === 'usb';
       const effectiveMovingToInternal = state.compressDestination === 'internal';
       const destructiveUnavailable =
-        effectiveMovingToUsb || effectiveMovingToInternal || !(g && g.canStreamDelete);
+        makeImage || effectiveMovingToUsb || effectiveMovingToInternal || !(g && g.canStreamDelete);
       if (destructiveUnavailable && state.compressDeletePolicy === 'stream') {
         state.compressDeletePolicy = 'after';
       }
-	      if (!effectiveMovingToUsb) {
-	        state.compressUsbOpen = false;
-	      }
-	      $('format-safe-space').textContent = safeSpaceText(g);
-	      $('format-stream-space').textContent = destructiveSpaceText(g);
-	      $('compress-usb-panel').classList.toggle('hidden', !effectiveMovingToUsb);
-	      renderCompressUsbSelect();
-      document.querySelectorAll('[data-compress-format], [data-compress-mode], [data-compress-handling], [data-compress-destination]').forEach((button) => {
+      if (!effectiveMovingToUsb) {
+        state.compressUsbOpen = false;
+      }
+      $('format-safe-space').textContent = safeSpaceText(g);
+      $('format-stream-space').textContent = makeImage ? 'Not available for image creation' : destructiveSpaceText(g);
+      $('format-destination-keep').textContent = makeImage
+        ? 'Write image next to the current game'
+        : 'Write next to the current game';
+	      $('format-destination-internal').textContent = makeImage
+	        ? 'Write image to /data/homebrew'
+	        : 'Write compressed file to /data/homebrew';
+      $('format-destination-usb').textContent = makeImage
+        ? 'Write image to the USB target below'
+        : 'Write compressed file to the USB target below';
+      $('compress-usb-panel').classList.toggle('hidden', !effectiveMovingToUsb);
+      renderCompressUsbSelect();
+      document.querySelectorAll('[data-compress-format], [data-compress-handling], [data-compress-destination]').forEach((button) => {
         const format = button.getAttribute('data-compress-format');
-        const mode = button.getAttribute('data-compress-mode');
         const handling = button.getAttribute('data-compress-handling');
-	        const destination = button.getAttribute('data-compress-destination');
-	        const hiddenDestination =
-	          (destination === 'internal' && !showInternal) ||
-	          (destination === 'usb' && hideUsbDestination);
+        const destination = button.getAttribute('data-compress-destination');
+        const hiddenDestination =
+          (destination === 'internal' && !showInternal) ||
+          (destination === 'usb' && hideUsbDestination);
         const selectedHandling =
           state.compressSourcePolicy === 'keep' ? 'keep' : state.compressDeletePolicy;
         const selected = format
           ? format === state.compressFormat
-          : (mode
-            ? mode === state.compressMode
-            : (destination
+          : (destination
               ? destination === state.compressDestination
-              : handling === selectedHandling));
+              : handling === selectedHandling);
         const disabled = hiddenDestination ||
           (destination === 'usb' && usbDestinationUnavailable) ||
           (handling === 'stream' && destructiveUnavailable);
@@ -5449,10 +5451,11 @@
         !g || (state.compressDestination === 'usb' && !state.compressUsbId);
     }
 
-    function showCompressFormatModal(g) {
+    function showCompressFormatModal(g, action) {
+      const makeImage = action === 'make-image';
       state.compressGame = g;
+      state.compressAction = makeImage ? 'make-image' : 'compress';
       state.compressFormat = 'exfat';
-      state.compressMode = 'compressed';
       state.compressDeletePolicy = 'after';
       state.compressSourcePolicy = 'after';
       state.compressSourcePolicyTouched = false;
@@ -5460,9 +5463,10 @@
       state.compressUsbId = '';
       state.compressUsbLoading = false;
       state.compressUsbOpen = false;
-      $('format-title').textContent = 'Compress ' + (g.name || g.titleId);
-      $('format-pfs-name').textContent = 'Experimental - pfs_image.dat';
+      $('format-title').textContent = (makeImage ? 'Make Image ' : 'Compress ') + (g.name || g.titleId);
+      $('format-pfs-name').textContent = makeImage ? (g.titleId || '<TITLE_ID>') + '.ffpfs' : 'Experimental - pfs_image.dat';
       $('format-exfat-name').textContent = (g.titleId || '<TITLE_ID>') + '.exfat';
+      $('format-start').textContent = makeImage ? 'Make Image' : 'Compress';
       updateCompressModalSelection();
       showModal('format-modal');
       state.compressUsbLoading = true;
@@ -5485,6 +5489,7 @@
     function closeCompressFormatModal() {
       hideModal('format-modal');
       state.compressGame = null;
+      state.compressAction = 'compress';
       state.compressDestination = 'keep';
       state.compressSourcePolicy = 'after';
       state.compressSourcePolicyTouched = false;
@@ -5533,8 +5538,8 @@
 
     async function startSelectedCompress() {
       const g = state.compressGame;
+      const action = state.compressAction === 'make-image' ? 'make-image' : 'compress';
       const format = state.compressFormat;
-      const mode = state.compressMode;
       const destination = state.compressDestination || 'keep';
       const movingElsewhere = destination === 'usb' || destination === 'internal';
       const deletePolicy = state.compressSourcePolicy === 'keep'
@@ -5555,7 +5560,7 @@
       }
       closeCompressFormatModal();
       if (format !== 'pfs' && format !== 'exfat') return;
-      await startAction(g, false, 'compress', format, deletePolicy, mode, usbId, destination);
+      await startAction(g, false, action, format, deletePolicy, usbId, destination);
     }
 
     async function startSelectedUncompress() {
@@ -5592,19 +5597,18 @@
       }
     }
 
-    async function startAction(g, confirmStream, overrideAction, compressFormat, deletePolicy, compressionMode, usbId, compressionDestination) {
+    async function startAction(g, confirmStream, overrideAction, compressFormat, deletePolicy, usbId, compressionDestination) {
       const action = overrideAction || actionFor(g);
       if (!action) return;
       if (!g || !g.sourcePath) return;
-      if (action === 'compress' && !compressFormat) {
-        showCompressFormatModal(g);
+      if ((action === 'compress' || action === 'make-image') && !compressFormat) {
+        showCompressFormatModal(g, action);
         return;
       }
       let url = '';
-      if (action === 'compress') {
-        url = '/api/gc/compress?' + gameQuery(g) +
+      if (action === 'compress' || action === 'make-image') {
+        url = (action === 'make-image' ? '/api/gc/make-image?' : '/api/gc/compress?') + gameQuery(g) +
           '&format=' + encodeURIComponent(compressFormat);
-        if (compressionMode) url += '&compressionMode=' + encodeURIComponent(compressionMode);
         if (deletePolicy) url += '&deletePolicy=' + encodeURIComponent(deletePolicy);
         if (compressionDestination && compressionDestination !== 'keep') {
           url += '&destination=' + encodeURIComponent(compressionDestination);
@@ -5630,6 +5634,7 @@
         const data = err.data || {};
         if (data.lowSpace) {
           const requested = deletePolicy || data.requestedDeletePolicy || '';
+          const noun = action === 'make-image' ? 'image creation' : 'compression';
           if (requested === 'stream') {
             const minFree = modalSizeText(data.streamMinFreeBytes || 1073741824);
             const extra = modalSizeText(data.streamExtraBytes || 0);
@@ -5639,7 +5644,7 @@
           if (requested === 'after') {
             const required = modalSizeText(data.requiredBytes || 0);
             const extra = modalSizeText(data.extraBytes || 0);
-            alert('Not enough free storage for safe compression.\n\nSafe keeps the original until the new file is complete and verified. It requires ' + required + ' free. Free ' + extra + ' more on the target storage.');
+            alert('Not enough free storage for safe ' + noun + '.\n\nSafe keeps the original until the new file is complete and verified. It requires ' + required + ' free. Free ' + extra + ' more on the target storage.');
             return;
           }
           const extra = shortSize(data.extraBytes || 0);
@@ -5647,7 +5652,7 @@
           if (data.canStreamDelete) {
             const msg = 'Not enough free storage for the safer path.\n\nDelete while processing can damage the original source if the operation stops.\n\n' + base;
             if (confirm(msg)) {
-              await startAction(g, true, overrideAction, compressFormat, deletePolicy, compressionMode, usbId, compressionDestination);
+              await startAction(g, true, overrideAction, compressFormat, deletePolicy, usbId, compressionDestination);
               return;
             }
           } else {
@@ -5774,12 +5779,6 @@
       document.querySelectorAll('[data-compress-format]').forEach((button) => {
         button.addEventListener('click', () => {
           state.compressFormat = button.getAttribute('data-compress-format') || 'exfat';
-          updateCompressModalSelection();
-        });
-      });
-      document.querySelectorAll('[data-compress-mode]').forEach((button) => {
-        button.addEventListener('click', () => {
-          state.compressMode = button.getAttribute('data-compress-mode') || 'compressed';
           updateCompressModalSelection();
         });
       });

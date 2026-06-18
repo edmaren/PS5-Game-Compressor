@@ -129,6 +129,7 @@ typedef enum gc_source_kind {
 
 typedef enum gc_action {
   GC_ACTION_COMPRESS = 1,
+  GC_ACTION_MAKE_IMAGE,
   GC_ACTION_UNCOMPRESS,
   GC_ACTION_EXTRACT_IMAGE,
   GC_ACTION_VALIDATE_REPAIR,
@@ -325,6 +326,7 @@ get_required_source_path_arg(const http_request_t *req, char *out,
 static const char *
 action_name(gc_action_t action) {
   if(action == GC_ACTION_COMPRESS) return "compress";
+  if(action == GC_ACTION_MAKE_IMAGE) return "make-image";
   if(action == GC_ACTION_UNCOMPRESS) return "uncompress";
   if(action == GC_ACTION_EXTRACT_IMAGE) return "extract-image";
   if(action == GC_ACTION_VALIDATE_REPAIR) return "validate-repair";
@@ -352,12 +354,8 @@ status_name(gc_op_status_t status) {
 
 static const char *
 compression_mode_or_default(const char *mode) {
-  return !strcasecmp(mode ? mode : "", "raw") ? "raw" : "compressed";
-}
-
-static int
-compression_mode_is_raw(const char *mode) {
-  return !strcmp(compression_mode_or_default(mode), "raw");
+  (void)mode;
+  return "compressed";
 }
 
 static int
@@ -4670,31 +4668,31 @@ mount_switch_hide_competitors(gc_operation_t *op, const gc_game_t *selected,
                               size_t max_hidden, size_t *hidden_count,
                               char *err, size_t err_size) {
   gc_game_t *games = calloc(GC_MAX_GAMES, sizeof(*games));
-  gc_scan_roots_t roots;
+  gc_scan_roots_t *roots = calloc(1, sizeof(*roots));
+  gc_source_roots_t *source_roots = calloc(1, sizeof(*source_roots));
   size_t count = 0;
   size_t hidden_used = 0;
+  int broad_scan = selected && selected->source_kind != GC_SOURCE_IMAGE;
   int rc = -1;
 
   if(hidden_count) *hidden_count = 0;
-  memset(&roots, 0, sizeof(roots));
-  if(!games) {
+  if(!games || !roots || !source_roots) {
     snprintf(err, err_size, "%s", "out of memory");
-    return -1;
+    goto done;
   }
   if(gc_cancel_requested(err, err_size)) goto done;
-  {
-    gc_source_roots_t source_roots;
-    shadow_source_roots_build(&source_roots);
-    for(size_t i = 0; i < source_roots.count; i++) {
-      scan_roots_add(&roots, source_roots.roots[i]);
+  if(broad_scan) {
+    shadow_source_roots_build(source_roots);
+    for(size_t i = 0; i < source_roots->count; i++) {
+      scan_roots_add(roots, source_roots->roots[i]);
+    }
+    for(size_t i = 0; i < GC_STORAGE_TARGET_COUNT; i++) {
+      scan_roots_add(roots, GC_STORAGE_TARGETS[i].root);
+      scan_roots_add(roots, GC_STORAGE_TARGETS[i].target_root);
     }
   }
-  for(size_t i = 0; i < GC_STORAGE_TARGET_COUNT; i++) {
-    scan_roots_add(&roots, GC_STORAGE_TARGETS[i].root);
-    scan_roots_add(&roots, GC_STORAGE_TARGETS[i].target_root);
-  }
-  scan_roots_add_parent(&roots, selected->source_path);
-  scan_roots_add_parent(&roots, selected->output_path);
+  scan_roots_add_parent(roots, selected->source_path);
+  scan_roots_add_parent(roots, selected->output_path);
   if(op && op->source_path[0] &&
      !paths_equal_ignoring_trailing_slash(op->source_path,
                                           selected->source_path)) {
@@ -4703,15 +4701,15 @@ mount_switch_hide_competitors(gc_operation_t *op, const gc_game_t *selected,
     if(candidate_game_from_path(op->source_path, base_name(op->source_path),
                                 &known, 0, 0) == 0 &&
        !strcmp(known.title_id, selected->title_id)) {
-      scan_roots_add_parent(&roots, known.source_path);
+      scan_roots_add_parent(roots, known.source_path);
       append_game_unique_by_source(games, GC_MAX_GAMES, &count, &known);
     }
   }
-  {
+  if(broad_scan) {
     char link_target[1024];
     if(read_title_link(selected->title_id, "mount.lnk", link_target,
                        sizeof(link_target)) == 0) {
-      scan_roots_add_parent(&roots, link_target);
+      scan_roots_add_parent(roots, link_target);
       gc_game_t mounted;
       memset(&mounted, 0, sizeof(mounted));
       snprintf(mounted.title_id, sizeof(mounted.title_id), "%s",
@@ -4729,24 +4727,28 @@ mount_switch_hide_competitors(gc_operation_t *op, const gc_game_t *selected,
       }
     }
   }
-  for(size_t i = 0; i < roots.count && count < GC_MAX_GAMES; i++) {
+  gc_log("mount switch scan title=%s selected=%s kind=%s broad=%d roots=%llu candidates=%llu",
+         selected->title_id, selected->source_path,
+         source_kind_name(selected->source_kind), broad_scan,
+         (unsigned long long)roots->count, (unsigned long long)count);
+  for(size_t i = 0; i < roots->count && count < GC_MAX_GAMES; i++) {
     char path[1024];
     gc_game_t candidate;
     int n = snprintf(path, sizeof(path), "%s/%s.ffpfsc",
-                     roots.roots[i], selected->title_id);
+                     roots->roots[i], selected->title_id);
     if(n >= 0 && (size_t)n < sizeof(path) &&
        candidate_game_from_path(path, base_name(path), &candidate, 0, 0) == 0 &&
        !strcmp(candidate.title_id, selected->title_id)) {
       append_game_unique_by_source(games, GC_MAX_GAMES, &count, &candidate);
     }
-    n = snprintf(path, sizeof(path), "%s/%s", roots.roots[i],
+    n = snprintf(path, sizeof(path), "%s/%s", roots->roots[i],
                  selected->title_id);
     if(n >= 0 && (size_t)n < sizeof(path) &&
        candidate_game_from_path(path, base_name(path), &candidate, 0, 0) == 0 &&
        !strcmp(candidate.title_id, selected->title_id)) {
       append_game_unique_by_source(games, GC_MAX_GAMES, &count, &candidate);
     }
-    n = snprintf(path, sizeof(path), "%s/%s-app", roots.roots[i],
+    n = snprintf(path, sizeof(path), "%s/%s-app", roots->roots[i],
                  selected->title_id);
     if(n >= 0 && (size_t)n < sizeof(path) &&
        candidate_game_from_path(path, base_name(path), &candidate, 0, 0) == 0 &&
@@ -4755,6 +4757,8 @@ mount_switch_hide_competitors(gc_operation_t *op, const gc_game_t *selected,
     }
   }
   if(gc_cancel_requested(err, err_size)) goto done;
+  gc_log("mount switch candidates title=%s count=%llu",
+         selected->title_id, (unsigned long long)count);
 
   for(size_t i = 0; i < count; i++) {
     gc_game_t *g = &games[i];
@@ -4800,6 +4804,8 @@ mount_switch_hide_competitors(gc_operation_t *op, const gc_game_t *selected,
   rc = 0;
 done:
   if(hidden_count) *hidden_count = hidden_used;
+  free(source_roots);
+  free(roots);
   free(games);
   return rc;
 }
@@ -4976,6 +4982,45 @@ build_compress_target_path(const char *target_root, const gc_game_t *game,
   snprintf(err, err_size, "%s", "game is not compressible");
   errno = EINVAL;
   return -1;
+}
+
+static int
+build_make_image_target_path(const char *target_root, const gc_game_t *game,
+                             int format, char *out, size_t out_size,
+                             char *err, size_t err_size) {
+  const char *ext = format == PFS_COMPRESS_FORMAT_EXFAT ? ".exfat" : ".ffpfs";
+  char root[1024];
+  if(!game || !game->title_id[0] || !out || out_size == 0) {
+    snprintf(err, err_size, "%s", "bad image target");
+    errno = EINVAL;
+    return -1;
+  }
+  if(game->source_kind != GC_SOURCE_FOLDER) {
+    snprintf(err, err_size, "%s", "only app folders can be made into images");
+    errno = EINVAL;
+    return -1;
+  }
+  if(target_root && target_root[0]) {
+    if(!path_is_shadowmount_game_root(target_root)) {
+      snprintf(err, err_size, "%s",
+               "image target is not a ShadowMountPlus game folder");
+      errno = EINVAL;
+      return -1;
+    }
+    snprintf(root, sizeof(root), "%s", target_root);
+  } else if(path_parent(game->source_path, root, sizeof(root)) != 0 ||
+            !root[0]) {
+    snprintf(err, err_size, "%s", "bad image target folder");
+    errno = EINVAL;
+    return -1;
+  }
+  int n = snprintf(out, out_size, "%s/%s%s", root, game->title_id, ext);
+  if(n < 0 || (size_t)n >= out_size) {
+    snprintf(err, err_size, "%s", "image target path too long");
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  return 0;
 }
 
 static int
@@ -5436,6 +5481,40 @@ init_compressed_output_game_for_mount(const gc_operation_t *op,
   set_game_mount_status(out, 0, "not-mounted");
   snprintf(out->primary_action, sizeof(out->primary_action), "%s",
            "Validate and Repair");
+}
+
+static void
+init_image_output_game_for_mount(const gc_operation_t *op,
+                                 const gc_game_t *source_game,
+                                 const pfs_app_info_t *info,
+                                 gc_game_t *out) {
+  if(!out) return;
+  memset(out, 0, sizeof(*out));
+  snprintf(out->title_id, sizeof(out->title_id), "%s",
+           op && op->title_id[0] ? op->title_id :
+           (info && info->title_id[0] ? info->title_id :
+            (source_game ? source_game->title_id : "")));
+  snprintf(out->name, sizeof(out->name), "%s",
+           source_game && source_game->name[0] ? source_game->name :
+           (out->title_id[0] ? out->title_id : "Image game"));
+  if(info && info->output_path[0]) {
+    snprintf(out->image_path, sizeof(out->image_path), "%s", info->output_path);
+    snprintf(out->source_path, sizeof(out->source_path), "%s", info->output_path);
+    snprintf(out->output_path, sizeof(out->output_path), "%s", info->output_path);
+  }
+  out->source_kind = GC_SOURCE_IMAGE;
+  if(info) {
+    snprintf(out->nested_name, sizeof(out->nested_name), "%s",
+             info->nested_name);
+    out->nested_type = info->nested_type;
+  }
+  out->source_size = source_size_bytes_exact(out->source_path,
+                                             out->source_kind);
+  if(out->source_path[0]) {
+    (void)free_bytes_for_output(out->source_path, &out->free_bytes);
+  }
+  set_game_mount_status(out, 0, "not-mounted");
+  snprintf(out->primary_action, sizeof(out->primary_action), "%s", "Compress");
 }
 
 static int
@@ -6045,13 +6124,15 @@ run_compress_op(gc_operation_t *op) {
   gc_game_t compressed_game = {0};
   gc_hidden_instance_t hidden[GC_MAX_GAMES];
   size_t hidden_count = 0;
+  int make_image = op->action == GC_ACTION_MAKE_IMAGE;
+  const char *op_log = make_image ? "make-image" : "compress";
   int format = !strcmp(op->format, "exfat") ?
       PFS_COMPRESS_FORMAT_EXFAT : PFS_COMPRESS_FORMAT_PFS;
   int stream_delete = !strcmp(op->delete_policy, "stream");
   int delete_after = !strcmp(op->delete_policy, "after");
   int preserve_hide = !strcmp(op->preserve_original, "hide");
   int skip_space_check = op->skip_space_check && !stream_delete;
-  int raw_only = compression_mode_is_raw(op->compression_mode);
+  int raw_only = 0;
   int delete_policy = stream_delete ?
       PFS_DELETE_STREAM : PFS_DELETE_KEEP;
   int pfs_delete_policy = delete_policy;
@@ -6090,19 +6171,31 @@ run_compress_op(gc_operation_t *op) {
     return -1; \
   } while(0)
 
-  gc_checkpoint("compress find game");
+  gc_checkpoint(make_image ? "make-image find game" : "compress find game");
   snprintf(op->format, sizeof(op->format), "%s",
            format == PFS_COMPRESS_FORMAT_EXFAT ? "exfat" : "pfs");
   snprintf(op->compression_mode, sizeof(op->compression_mode), "%s",
            compression_mode_or_default(op->compression_mode));
-  gc_log("compress start op=%s title=%s format=%s policy=%s mode=%s skipSpaceCheck=%d",
-         op->id, op->title_id, op->format, op->delete_policy,
-         op->compression_mode, skip_space_check);
+  gc_log("%s start op=%s title=%s format=%s policy=%s skipSpaceCheck=%d",
+         op_log, op->id, op->title_id, op->format, op->delete_policy,
+         skip_space_check);
   append_operation_phase(op, "resolving");
   job_set_phase("resolving", 0, 0, "Resolving selected source");
   if(find_game_for_operation_source_path(op, &game, 0) != 0) {
     snprintf(op->error, sizeof(op->error), "%s", "game is no longer mounted");
-    gc_log("compress failed title=%s err=%s", op->title_id, op->error);
+    gc_log("%s failed title=%s err=%s", op_log, op->title_id, op->error);
+    COMPRESS_FAIL_RETURN();
+  }
+  if(make_image && game.source_kind != GC_SOURCE_FOLDER) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             "only app folders can be made into images");
+    gc_log("%s failed title=%s err=%s", op_log, op->title_id, op->error);
+    COMPRESS_FAIL_RETURN();
+  }
+  if(make_image && stream_delete) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             "destructive image creation is not supported");
+    gc_log("%s failed title=%s err=%s", op_log, op->title_id, op->error);
     COMPRESS_FAIL_RETURN();
   }
   if(game.name[0]) {
@@ -6113,21 +6206,29 @@ run_compress_op(gc_operation_t *op) {
     moving_to_target = 1;
     if(stream_delete) {
       snprintf(op->error, sizeof(op->error), "%s",
+               make_image ?
+               "destructive image creation is not available while writing to target storage" :
                "destructive compression is not available while writing to target storage");
-      gc_log("compress failed title=%s err=%s", op->title_id, op->error);
+      gc_log("%s failed title=%s err=%s", op_log, op->title_id, op->error);
       COMPRESS_FAIL_RETURN();
     }
-    if(build_compress_target_path(op->target_root, &game,
-                                  compress_output_path,
-                                  sizeof(compress_output_path),
-                                  err, sizeof(err)) != 0) {
+    int target_rc = make_image
+        ? build_make_image_target_path(op->target_root, &game, format,
+                                       compress_output_path,
+                                       sizeof(compress_output_path),
+                                       err, sizeof(err))
+        : build_compress_target_path(op->target_root, &game,
+                                     compress_output_path,
+                                     sizeof(compress_output_path),
+                                     err, sizeof(err));
+    if(target_rc != 0) {
       snprintf(op->error, sizeof(op->error), "%s", err);
-      gc_log("compress failed title=%s err=%s", op->title_id, op->error);
+      gc_log("%s failed title=%s err=%s", op_log, op->title_id, op->error);
       COMPRESS_FAIL_RETURN();
     }
     snprintf(op->output_path, sizeof(op->output_path), "%s",
              compress_output_path);
-    if(!strcmp(storage_name_for_path(compress_output_path), "usb")) {
+    if(!make_image && !strcmp(storage_name_for_path(compress_output_path), "usb")) {
       stage_usb_target = 1;
       if(build_compress_stage_path(op, &game, staged_compress_path,
                                    sizeof(staged_compress_path),
@@ -6143,48 +6244,69 @@ run_compress_op(gc_operation_t *op) {
                compress_output_path);
     }
   } else {
-    snprintf(compress_output_path, sizeof(compress_output_path), "%s",
-             game.output_path);
+    if(make_image) {
+      if(build_make_image_target_path(NULL, &game, format,
+                                      compress_output_path,
+                                      sizeof(compress_output_path),
+                                      err, sizeof(err)) != 0) {
+        snprintf(op->error, sizeof(op->error), "%s", err);
+        gc_log("%s failed title=%s err=%s", op_log, op->title_id, op->error);
+        COMPRESS_FAIL_RETURN();
+      }
+    } else {
+      snprintf(compress_output_path, sizeof(compress_output_path), "%s",
+               game.output_path);
+    }
     snprintf(compress_write_path, sizeof(compress_write_path), "%s",
              compress_output_path);
-    snprintf(op->output_path, sizeof(op->output_path), "%s", game.output_path);
+    snprintf(op->output_path, sizeof(op->output_path), "%s",
+             compress_output_path);
   }
   snprintf(op->source_kind, sizeof(op->source_kind), "%s",
            source_kind_name(game.source_kind));
   if(close_title_if_running(op->title_id, err, sizeof(err)) != 0) {
     snprintf(op->error, sizeof(op->error), "%s",
              err[0] ? err : "could not close game");
-    gc_log("compress close game failed title=%s err=%s", op->title_id,
+    gc_log("%s close game failed title=%s err=%s", op_log, op->title_id,
            op->error);
     COMPRESS_FAIL_RETURN();
   }
-  append_operation_phase(op, "compressing");
-  job_set_phase("compressing", 0, 0, "Compressing game");
+  append_operation_phase(op, make_image ? "making-image" : "compressing");
+  job_set_phase(make_image ? "making-image" : "compressing", 0, 0,
+                make_image ? "Making image" : "Compressing game");
   pfs_delete_policy = delete_policy;
   if(delete_after && game.source_kind == GC_SOURCE_FOLDER) {
     pfs_delete_policy = PFS_DELETE_AFTER;
   }
   if(game.source_kind == GC_SOURCE_FOLDER) {
     int prepare_rc;
-    gc_checkpoint("compress prepare scan");
-    prepare_rc = pfs_compress_prepare_source_to_ffpfsc_opts_output_ex(
-        game.source_path, 0, format, pfs_delete_policy, raw_only,
-        moving_to_target ? compress_write_path : NULL,
-        stream_delete ? &stream_opts : NULL,
-        &compress_plan, &info, err, sizeof(err));
+    gc_checkpoint(make_image ? "make-image prepare scan" : "compress prepare scan");
+    if(make_image) {
+      prepare_rc = pfs_make_image_prepare_source_opts_output_ex(
+          game.source_path, 0, format, compress_write_path,
+          &compress_plan, &info, err, sizeof(err));
+    } else {
+      prepare_rc = pfs_compress_prepare_source_to_ffpfsc_opts_output_ex(
+          game.source_path, 0, format, pfs_delete_policy, raw_only,
+          moving_to_target ? compress_write_path : NULL,
+          stream_delete ? &stream_opts : NULL,
+          &compress_plan, &info, err, sizeof(err));
+    }
     if(prepare_rc != 0) {
       if(prepare_rc == -2 || errno == EEXIST || error_is_output_exists(err)) {
         set_output_exists_error(op, compress_write_path);
       } else {
         snprintf(op->error, sizeof(op->error), "%s",
-                 err[0] ? err : "compression scan failed");
+                 err[0] ? err :
+                 (make_image ? "image scan failed" : "compression scan failed"));
       }
-      gc_log("compress scan failed title=%s err=%s", op->title_id, op->error);
+      gc_log("%s scan failed title=%s err=%s", op_log, op->title_id, op->error);
       COMPRESS_FAIL_RETURN();
     }
     operation_store_scan_stats(op, &info);
     game.source_size = info.scan_bytes;
-    game.required_bytes = info.scan_bytes;
+    game.required_bytes = make_image && info.nested_size
+        ? info.nested_size : info.scan_bytes;
     game.size_pending = 0;
     gc_size_cache_store(game.source_path, info.scan_bytes);
     gc_log("compress scan title=%s storage=%s workers=%llu bytes=%llu files=%llu dirs=%llu entries=%llu elapsedMs=%llu path=%s",
@@ -6368,34 +6490,52 @@ run_compress_op(gc_operation_t *op) {
                  stream_budget_bytes > (uint64_t)LONG_MAX ? LONG_MAX :
                  (long)stream_budget_bytes);
   }
-  gc_checkpoint("compress shadowmount hints");
-  if(planned_compress_nested(&game, format, planned_nested_name,
-                             sizeof(planned_nested_name),
-                             &planned_nested_type) != 0) {
-    snprintf(op->error, sizeof(op->error), "%s",
-             "could not derive ShadowMount hints");
-    gc_log("compress failed title=%s err=%s", op->title_id, op->error);
-    COMPRESS_FAIL_RETURN();
+  gc_checkpoint(make_image ? "make-image shadowmount hints" :
+                "compress shadowmount hints");
+  if(make_image) {
+    if(gc_shadowmount_prepare_image_hints_for_title(op->title_id,
+                                                   compress_output_path,
+                                                   info.nested_type,
+                                                   err, sizeof(err)) != 0) {
+      snprintf(op->error, sizeof(op->error), "ShadowMount hint failed: %s",
+               err[0] ? err : "unknown");
+      gc_log("%s failed title=%s err=%s", op_log, op->title_id, op->error);
+      COMPRESS_FAIL_RETURN();
+    }
+    gc_log("make-image shadowmount hints title=%s image=%s type=%d",
+           op->title_id, compress_output_path, info.nested_type);
+  } else {
+    if(planned_compress_nested(&game, format, planned_nested_name,
+                               sizeof(planned_nested_name),
+                               &planned_nested_type) != 0) {
+      snprintf(op->error, sizeof(op->error), "%s",
+               "could not derive ShadowMount hints");
+      gc_log("compress failed title=%s err=%s", op->title_id, op->error);
+      COMPRESS_FAIL_RETURN();
+    }
+    if(gc_shadowmount_prepare_pfsc_hints_for_title(op->title_id,
+                                                  compress_output_path,
+                                                  planned_nested_name,
+                                                  planned_nested_type,
+                                                  err, sizeof(err)) != 0) {
+      snprintf(op->error, sizeof(op->error), "ShadowMount hint failed: %s",
+               err[0] ? err : "unknown");
+      gc_log("compress failed title=%s err=%s", op->title_id, op->error);
+      COMPRESS_FAIL_RETURN();
+    }
+    gc_log("compress shadowmount hints title=%s outer=%s nested=%s type=%d",
+           op->title_id, compress_output_path, planned_nested_name,
+           planned_nested_type);
   }
-  if(gc_shadowmount_prepare_pfsc_hints_for_title(op->title_id,
-                                                compress_output_path,
-                                                planned_nested_name,
-                                                planned_nested_type,
-                                                err, sizeof(err)) != 0) {
-    snprintf(op->error, sizeof(op->error), "ShadowMount hint failed: %s",
-             err[0] ? err : "unknown");
-    gc_log("compress failed title=%s err=%s", op->title_id, op->error);
-    COMPRESS_FAIL_RETURN();
-  }
-  gc_log("compress shadowmount hints title=%s outer=%s nested=%s type=%d",
-         op->title_id, compress_output_path, planned_nested_name,
-         planned_nested_type);
 
-  gc_checkpoint("compress writing ffpfsc");
+  gc_checkpoint(make_image ? "make-image writing image" :
+                "compress writing ffpfsc");
   int compress_rc;
   if(compress_plan) {
-    compress_rc = pfs_compress_execute_prepared_to_ffpfsc(
-        compress_plan, PFS_COMPRESS_DEFAULT_WORKERS, &info, err, sizeof(err));
+    compress_rc = make_image
+        ? pfs_make_image_execute_prepared(compress_plan, &info, err, sizeof(err))
+        : pfs_compress_execute_prepared_to_ffpfsc(
+            compress_plan, PFS_COMPRESS_DEFAULT_WORKERS, &info, err, sizeof(err));
     pfs_compress_plan_free(compress_plan);
     compress_plan = NULL;
   } else {
@@ -6411,9 +6551,10 @@ run_compress_op(gc_operation_t *op) {
       set_output_exists_error(op, compress_write_path);
     } else {
       snprintf(op->error, sizeof(op->error), "%s",
-               err[0] ? err : "compression failed");
+               err[0] ? err :
+               (make_image ? "image creation failed" : "compression failed"));
     }
-    gc_log("compress failed title=%s err=%s", op->title_id, op->error);
+    gc_log("%s failed title=%s err=%s", op_log, op->title_id, op->error);
     COMPRESS_FAIL_RETURN();
   }
   operation_store_scan_stats(op, &info);
@@ -6435,12 +6576,83 @@ run_compress_op(gc_operation_t *op) {
     info.output_exists = 1;
   }
   snprintf(op->output_path, sizeof(op->output_path), "%s", info.output_path);
-	  operation_store_compression_stats(op, game.source_size, info.output_path);
-	  gc_log("compress wrote title=%s output=%s nested=%s nestedSize=%llu storedSize=%llu",
-	         op->title_id, info.output_path, info.nested_name,
+  if(!make_image) {
+    operation_store_compression_stats(op, game.source_size, info.output_path);
+  }
+  gc_log("%s wrote title=%s output=%s nested=%s nestedSize=%llu storedSize=%llu",
+         op_log, op->title_id, info.output_path, info.nested_name,
          (unsigned long long)info.nested_size,
          (unsigned long long)info.stored_size);
   compressed_output_committed = 1;
+  if(make_image) {
+    append_operation_phase(op, "image-created");
+    init_image_output_game_for_mount(op, &game, &info, &compressed_game);
+    gc_checkpoint("make-image mount output");
+    err[0] = 0;
+    if(mount_selected_instance_hidden_exclusive(
+           op, &compressed_game, hidden, GC_MAX_GAMES, &hidden_count,
+           &mount_missed, err, sizeof(err)) != 0) {
+      char restore_err[256] = {0};
+      if(hidden_count > 0 &&
+         mount_switch_restore_after_operation(op, hidden, hidden_count,
+                                              restore_err,
+                                              sizeof(restore_err)) != 0) {
+        gc_log("make-image mount restore failed title=%s err=%s", op->title_id,
+               restore_err[0] ? restore_err : "unknown");
+      }
+      snprintf(op->error, sizeof(op->error), "%s",
+               err[0] ? err : "ShadowMountPlus mount failed");
+      gc_log("make-image mount failed title=%s err=%s", op->title_id,
+             op->error);
+      COMPRESS_FAIL_RETURN();
+    }
+    if(mount_missed) {
+      char restore_err[256] = {0};
+      if(mount_switch_restore_after_operation(op, hidden, hidden_count,
+                                              restore_err,
+                                              sizeof(restore_err)) != 0) {
+        gc_log("make-image mount-missed restore failed title=%s err=%s",
+               op->title_id, restore_err[0] ? restore_err : "unknown");
+      }
+      operation_mark_not_mounted(op,
+          err[0] ? err : "ShadowMountPlus did not mount image output");
+      gc_log("make-image complete not mounted title=%s output=%s detail=%s",
+             op->title_id, info.output_path, err[0] ? err : "");
+      return 0;
+    }
+    if(delete_after) {
+      if(compress_delete_source_after_success(op, &game, hidden,
+                                              hidden_count) != 0) {
+        COMPRESS_FAIL_RETURN();
+      }
+    } else if(preserve_hide) {
+      char preserve_err[256] = {0};
+      gc_checkpoint("make-image preserve original");
+      job_set_current("Preserving original source");
+      if(preserve_original_source_after_success(op, &game, hidden, hidden_count,
+                                                preserve_err,
+                                                sizeof(preserve_err)) != 0) {
+        char restore_err[256] = {0};
+        snprintf(op->error, sizeof(op->error), "%s",
+                 preserve_err[0] ? preserve_err :
+                 "could not preserve original source");
+        gc_log("make-image preserve original failed title=%s err=%s",
+               op->title_id, op->error);
+        (void)mount_switch_restore_after_operation(op, hidden, hidden_count,
+                                                   restore_err,
+                                                   sizeof(restore_err));
+        COMPRESS_FAIL_RETURN();
+      }
+    }
+    if(compress_restore_duplicates_after_success(op, hidden,
+                                                 hidden_count, 0) != 0) {
+      COMPRESS_FAIL_RETURN();
+    }
+    snprintf(op->result, sizeof(op->result), "%s", "success");
+    gc_log("make-image complete title=%s output=%s", op->title_id,
+           info.output_path);
+    return 0;
+  }
   if(stream_delete) {
     append_operation_phase(op, "source-deleted");
   } else {
@@ -8017,7 +8229,8 @@ operation_thread(void *arg) {
   }
 
   gc_checkpoint("operation running");
-  if(op->action == GC_ACTION_COMPRESS) rc = run_compress_op(op);
+  if(op->action == GC_ACTION_COMPRESS ||
+     op->action == GC_ACTION_MAKE_IMAGE) rc = run_compress_op(op);
   else if(op->action == GC_ACTION_UNCOMPRESS) rc = run_uncompress_op(op);
   else if(op->action == GC_ACTION_EXTRACT_IMAGE) rc = run_extract_image_op(op);
   else if(op->action == GC_ACTION_VALIDATE_REPAIR) rc = run_validate_repair_op(op);
@@ -8208,8 +8421,6 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
   char format_arg[16];
   char mode_arg[16];
   char destination_arg[24] = "";
-  char compression_mode_arg[24];
-  char raw_only_arg[16];
   char delete_policy_arg[24];
   char preserve_arg[24];
   char budget_arg[32];
@@ -8218,7 +8429,6 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
   char usb_id[16] = "";
   char requested_delete_policy[16] = "";
   char preserve_original[16] = "";
-  char compression_mode[16] = "compressed";
   char stream_order[24] = "budgeted-gain";
   uint64_t stream_budget_bytes = PFS_STREAM_DEFAULT_BUDGET_BYTES;
   gc_game_t game;
@@ -8227,6 +8437,8 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
   int skip_space_check = 0;
   int uncompress_to_internal = 0;
   int compress_to_internal = 0;
+  int makes_image = action == GC_ACTION_COMPRESS ||
+                    action == GC_ACTION_MAKE_IMAGE;
 
   const char *arg_err = read_title_source_args(req, title_id,
                                                sizeof(title_id),
@@ -8246,14 +8458,15 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
   }
   pthread_mutex_unlock(&g_gc_lock);
   snprintf(format, sizeof(format), "%s", "pfs");
-  if(action == GC_ACTION_COMPRESS &&
+  if(makes_image &&
      websrv_get_query_arg(req, "format", format_arg, sizeof(format_arg))) {
     if(!strcasecmp(format_arg, "pfs")) {
       snprintf(format, sizeof(format), "%s", "pfs");
     } else if(!strcasecmp(format_arg, "exfat")) {
       snprintf(format, sizeof(format), "%s", "exfat");
     } else {
-      return serve_error(req, 400, "bad compression format");
+      return serve_error(req, 400, action == GC_ACTION_MAKE_IMAGE ?
+                         "bad image format" : "bad compression format");
     }
   }
   if(action == GC_ACTION_UNCOMPRESS &&
@@ -8267,7 +8480,7 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
       return serve_error(req, 400, "bad uncompress mode");
     }
   }
-  if(action == GC_ACTION_COMPRESS &&
+  if(makes_image &&
      websrv_get_query_arg(req, "destination", destination_arg,
                           sizeof(destination_arg))) {
     if(!strcasecmp(destination_arg, "keep") ||
@@ -8280,7 +8493,8 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
               !strcasecmp(destination_arg, "external")) {
       /* usbId is parsed after storage discovery. */
     } else {
-      return serve_error(req, 400, "bad compression destination");
+      return serve_error(req, 400, action == GC_ACTION_MAKE_IMAGE ?
+                         "bad image destination" : "bad compression destination");
     }
   }
   if(action == GC_ACTION_UNCOMPRESS &&
@@ -8298,37 +8512,6 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
       return serve_error(req, 400, "bad uncompress destination");
     }
   }
-  if(action == GC_ACTION_COMPRESS &&
-     websrv_get_query_arg(req, "compressionMode", compression_mode_arg,
-                          sizeof(compression_mode_arg))) {
-    if(!strcasecmp(compression_mode_arg, "compressed") ||
-       !strcasecmp(compression_mode_arg, "default")) {
-      snprintf(compression_mode, sizeof(compression_mode), "%s",
-               "compressed");
-    } else if(!strcasecmp(compression_mode_arg, "raw") ||
-              !strcasecmp(compression_mode_arg, "raw-only") ||
-              !strcasecmp(compression_mode_arg, "rawOnly")) {
-      snprintf(compression_mode, sizeof(compression_mode), "%s", "raw");
-    } else {
-      return serve_error(req, 400, "bad compression mode");
-    }
-  }
-  if(action == GC_ACTION_COMPRESS &&
-     websrv_get_query_arg(req, "rawOnly", raw_only_arg,
-                          sizeof(raw_only_arg))) {
-    if(!strcasecmp(raw_only_arg, "1") ||
-       !strcasecmp(raw_only_arg, "true") ||
-       !strcasecmp(raw_only_arg, "yes")) {
-      snprintf(compression_mode, sizeof(compression_mode), "%s", "raw");
-    } else if(!strcasecmp(raw_only_arg, "0") ||
-              !strcasecmp(raw_only_arg, "false") ||
-              !strcasecmp(raw_only_arg, "no")) {
-      snprintf(compression_mode, sizeof(compression_mode), "%s",
-               "compressed");
-    } else {
-      return serve_error(req, 400, "bad rawOnly");
-    }
-  }
   if(websrv_get_query_arg(req, "deletePolicy", delete_policy_arg,
                           sizeof(delete_policy_arg))) {
     if(!strcasecmp(delete_policy_arg, "after") ||
@@ -8340,10 +8523,12 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
       if(action == GC_ACTION_UNCOMPRESS) {
         return serve_error(req, 400, "stream unpack is not supported");
       }
+      if(action == GC_ACTION_MAKE_IMAGE) {
+        return serve_error(req, 400, "destructive image creation is not supported");
+      }
       snprintf(requested_delete_policy, sizeof(requested_delete_policy),
                "%s", "stream");
-    } else if((action == GC_ACTION_UNCOMPRESS ||
-               action == GC_ACTION_COMPRESS) &&
+    } else if((action == GC_ACTION_UNCOMPRESS || makes_image) &&
               (!strcasecmp(delete_policy_arg, "keep") ||
                !strcasecmp(delete_policy_arg, "none"))) {
       snprintf(requested_delete_policy, sizeof(requested_delete_policy),
@@ -8352,7 +8537,7 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
       return serve_error(req, 400, "bad delete policy");
     }
   }
-  if(action == GC_ACTION_COMPRESS &&
+  if(makes_image &&
      websrv_get_query_arg(req, "preserveOriginal", preserve_arg,
                           sizeof(preserve_arg))) {
     if(!strcasecmp(preserve_arg, "hide")) {
@@ -8391,7 +8576,7 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
       return serve_error(req, 400, "bad stream order");
     }
   }
-  if(action == GC_ACTION_COMPRESS &&
+  if(makes_image &&
      websrv_get_query_arg(req, "skipSpaceCheck", skip_space_arg,
                           sizeof(skip_space_arg))) {
     if(!strcasecmp(skip_space_arg, "1") ||
@@ -8406,7 +8591,7 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
       return serve_error(req, 400, "bad skipSpaceCheck");
     }
   }
-  if(action == GC_ACTION_COMPRESS &&
+  if(makes_image &&
      websrv_get_query_arg(req, "usbId", usb_id, sizeof(usb_id))) {
     if(storage_target_root_for_id(usb_id, target_root,
                                   sizeof(target_root), NULL) != 0) {
@@ -8414,18 +8599,22 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
     }
     if(requested_delete_policy[0] && !strcmp(requested_delete_policy, "stream")) {
       return serve_error(req, 400,
+                         action == GC_ACTION_MAKE_IMAGE ?
+                         "destructive image creation is not available while moving to external storage" :
                          "destructive compression is not available while moving to external storage");
     }
     if(!requested_delete_policy[0]) {
       snprintf(requested_delete_policy, sizeof(requested_delete_policy), "%s",
                "after");
     }
-  } else if(action == GC_ACTION_COMPRESS && compress_to_internal) {
+  } else if(makes_image && compress_to_internal) {
     if(path_under_root(source_path_arg, "/data")) {
       return serve_error(req, 409, "game is already on internal SSD");
     }
     if(requested_delete_policy[0] && !strcmp(requested_delete_policy, "stream")) {
       return serve_error(req, 400,
+                         action == GC_ACTION_MAKE_IMAGE ?
+                         "destructive image creation is not available while moving to internal SSD" :
                          "destructive compression is not available while moving to internal SSD");
     }
     snprintf(target_root, sizeof(target_root), "%s", GC_INTERNAL_GAME_ROOT);
@@ -8433,7 +8622,7 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
       snprintf(requested_delete_policy, sizeof(requested_delete_policy), "%s",
                "after");
     }
-  } else if(action == GC_ACTION_COMPRESS && destination_arg[0] &&
+  } else if(makes_image && destination_arg[0] &&
             (!strcasecmp(destination_arg, "usb") ||
              !strcasecmp(destination_arg, "external"))) {
     return serve_error(req, 400, "bad storage target");
@@ -8469,16 +8658,16 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
      action == GC_ACTION_VALIDATE_ONLY ||
      action == GC_ACTION_REFRESH_MOUNT) {
     snprintf(delete_policy, sizeof(delete_policy), "%s", "none");
-	  } else if(action == GC_ACTION_COMPRESS && target_root[0]) {
-	    snprintf(delete_policy, sizeof(delete_policy), "%s",
-	             !strcmp(requested_delete_policy, "keep") ? "keep" : "after");
-	  } else {
-	    if(action == GC_ACTION_COMPRESS &&
-	       requested_delete_policy[0] &&
-	       !strcmp(requested_delete_policy, "stream")) {
-	      snprintf(delete_policy, sizeof(delete_policy), "%s", "stream");
-	    } else if(requested_delete_policy[0] &&
-	              !strcmp(requested_delete_policy, "keep")) {
+  } else if(makes_image && target_root[0]) {
+    snprintf(delete_policy, sizeof(delete_policy), "%s",
+             !strcmp(requested_delete_policy, "keep") ? "keep" : "after");
+  } else {
+    if(action == GC_ACTION_COMPRESS &&
+       requested_delete_policy[0] &&
+       !strcmp(requested_delete_policy, "stream")) {
+      snprintf(delete_policy, sizeof(delete_policy), "%s", "stream");
+    } else if(requested_delete_policy[0] &&
+              !strcmp(requested_delete_policy, "keep")) {
       snprintf(delete_policy, sizeof(delete_policy), "%s", "keep");
     } else if(requested_delete_policy[0] &&
               !strcmp(requested_delete_policy, "after")) {
@@ -8498,7 +8687,7 @@ enqueue_action(const http_request_t *req, gc_action_t action) {
   snprintf(op->delete_policy, sizeof(op->delete_policy), "%s",
            delete_policy);
   snprintf(op->compression_mode, sizeof(op->compression_mode), "%s",
-           compression_mode_or_default(compression_mode));
+           compression_mode_or_default(NULL));
   snprintf(op->stream_order, sizeof(op->stream_order), "%s", stream_order);
   op->stream_budget_bytes = stream_budget_bytes;
   op->skip_space_check = skip_space_check;
@@ -8545,6 +8734,7 @@ infer_uncompress_nested_from_shadow(const char *source_path,
       break;
     }
     if(!strcmp(ent->d_name, "pfs_image.dat") ||
+       ends_with_ci(ent->d_name, ".ffpfs") ||
        ends_with_ci(ent->d_name, ".pfs")) {
       if(nested_name && nested_name_size) {
         snprintf(nested_name, nested_name_size, "%s", ent->d_name);
@@ -8563,7 +8753,7 @@ build_default_uncompress_image_path(const char *source_path, int nested_type,
   char parent[1024];
   const char *name = base_name(source_path);
   char stem[256];
-  const char *ext = nested_type == PFS_NESTED_EXFAT ? ".exfat" : ".pfs";
+  const char *ext = nested_type == PFS_NESTED_EXFAT ? ".exfat" : ".ffpfs";
   if(!source_path || !name || !ends_with_ci(name, ".ffpfsc") ||
      path_parent(source_path, parent, sizeof(parent)) != 0) {
     snprintf(err, err_size, "%s", "bad compressed image path");
@@ -8630,7 +8820,7 @@ uncompress_plan_request(const http_request_t *req) {
   }
   json_buf_t b = {0};
   const char *type = nested_type_name(nested_type);
-  const char *ext = nested_type == PFS_NESTED_EXFAT ? ".exfat" : ".pfs";
+  const char *ext = nested_type == PFS_NESTED_EXFAT ? ".exfat" : ".ffpfs";
   if(json_append(&b, "{\"ok\":true,\"titleId\":") != 0 ||
      json_string(&b, title_id) != 0 ||
      json_append(&b, ",\"sourcePath\":") != 0 ||
@@ -9951,6 +10141,9 @@ gc_api_request(const http_request_t *req, const char *url) {
   if(!strcmp(req->path, "/api/gc/queue/cancel")) return cancel_queued_request(req);
   if(!strcmp(req->path, "/api/gc/compress")) {
     return enqueue_action(req, GC_ACTION_COMPRESS);
+  }
+  if(!strcmp(req->path, "/api/gc/make-image")) {
+    return enqueue_action(req, GC_ACTION_MAKE_IMAGE);
   }
   if(!strcmp(req->path, "/api/gc/uncompress")) {
     return enqueue_action(req, GC_ACTION_UNCOMPRESS);

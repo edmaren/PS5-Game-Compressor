@@ -102,6 +102,16 @@ int pfs_compress_execute_prepared_to_ffpfsc(pfs_compress_plan_t *plan,
                                             int workers,
                                             pfs_app_info_t *info,
                                             char *err, size_t err_size);
+int pfs_make_image_prepare_source_opts_output_ex(const char *path,
+                                      int overwrite,
+                                      int format,
+                                      const char *output_path,
+                                      pfs_compress_plan_t **plan_out,
+                                      pfs_app_info_t *info,
+                                      char *err, size_t err_size);
+int pfs_make_image_execute_prepared(pfs_compress_plan_t *plan,
+                                    pfs_app_info_t *info,
+                                    char *err, size_t err_size);
 void pfs_compress_plan_free(pfs_compress_plan_t *plan);
 
 int pfs_build_ampr_index_for_folder(const char *path,

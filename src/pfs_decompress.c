@@ -3549,7 +3549,7 @@ pfs_decompress_set_image_output_path(pfs_decompress_info_t *info,
   }
   memcpy(stem, base, base_len - ext_len);
   stem[base_len - ext_len] = 0;
-  const char *ext = info->nested_type == PFS_NESTED_EXFAT ? ".exfat" : ".pfs";
+  const char *ext = info->nested_type == PFS_NESTED_EXFAT ? ".exfat" : ".ffpfs";
   int n = snprintf(info->output_path, sizeof(info->output_path), "%s%s%s%s",
                    parent, parent[1] ? "/" : "", stem, ext);
   if(n < 0 || (size_t)n >= sizeof(info->output_path)) {

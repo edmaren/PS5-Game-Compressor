@@ -7883,6 +7883,206 @@ done:
   return rc;
 }
 
+static int
+direct_image_output_path_valid(const char *path, int format) {
+  if(format == PFS_COMPRESS_FORMAT_EXFAT) return ends_with_ci(path, ".exfat");
+  if(format == PFS_COMPRESS_FORMAT_PFS) {
+    return ends_with_ci(path, ".ffpfs");
+  }
+  return 0;
+}
+
+static int
+default_direct_image_output_path(const pfs_app_info_t *info, int format,
+                                 char *out, size_t out_size,
+                                 char *err, size_t err_size) {
+  char parent[1024];
+  char base[256];
+  const char *ext = format == PFS_COMPRESS_FORMAT_EXFAT ? ".exfat" : ".ffpfs";
+  if(!info || !info->source_path[0] || !info->title_id[0]) {
+    set_err(err, err_size, "bad image source");
+    errno = EINVAL;
+    return -1;
+  }
+  if(path_parent_base(info->source_path, parent, sizeof(parent),
+                      base, sizeof(base)) != 0) {
+    set_err(err, err_size, "bad image output folder");
+    return -1;
+  }
+  int n = snprintf(out, out_size, "%s%s%s%s",
+                   parent, parent[1] ? "/" : "", info->title_id, ext);
+  if(n < 0 || (size_t)n >= out_size) {
+    set_err(err, err_size, "image output path too long");
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  return 0;
+}
+
+int
+pfs_make_image_prepare_source_opts_output_ex(const char *path,
+                                      int overwrite,
+                                      int format,
+                                      const char *output_path,
+                                      pfs_compress_plan_t **plan_out,
+                                      pfs_app_info_t *info,
+                                      char *err, size_t err_size) {
+  pfs_app_info_t local_info;
+  pfs_compress_plan_t *plan = NULL;
+  struct stat st;
+  int rc;
+
+  if(!plan_out) {
+    set_err(err, err_size, "bad image plan output");
+    errno = EINVAL;
+    return -1;
+  }
+  *plan_out = NULL;
+  if(format != PFS_COMPRESS_FORMAT_PFS &&
+     format != PFS_COMPRESS_FORMAT_EXFAT) {
+    set_err(err, err_size, "unsupported image format");
+    errno = EINVAL;
+    return -1;
+  }
+  if(!info) info = &local_info;
+  if(pfs_app_probe(path, info, err, err_size) != 0) return -1;
+  if(output_path && output_path[0]) {
+    if(normalize_app_path(output_path, info->output_path,
+                          sizeof(info->output_path)) != 0 ||
+       !direct_image_output_path_valid(info->output_path, format)) {
+      set_err(err, err_size, "bad image output path");
+      errno = EINVAL;
+      return -1;
+    }
+  } else if(default_direct_image_output_path(info, format, info->output_path,
+                                             sizeof(info->output_path),
+                                             err, err_size) != 0) {
+    return -1;
+  }
+  info->output_exists = stat(info->output_path, &st) == 0;
+
+  plan = calloc(1, sizeof(*plan));
+  if(!plan) {
+    set_err(err, err_size, "out of memory");
+    errno = ENOMEM;
+    return -1;
+  }
+  rc = pfs_compress_prepare_probed_to_ffpfsc_opts(
+      plan, info, overwrite, format, PFS_DELETE_KEEP, 0,
+      NULL, info, err, err_size);
+  if(rc != 0) {
+    pfs_compress_plan_free(plan);
+    return rc;
+  }
+  *plan_out = plan;
+  return 0;
+}
+
+int
+pfs_make_image_execute_prepared(pfs_compress_plan_t *plan,
+                                pfs_app_info_t *info_out,
+                                char *err, size_t err_size) {
+  pfs_app_info_t local_info;
+  pfs_app_info_t *info = &local_info;
+  pfs_layout_t nested = {0};
+  virtual_reader_t vr;
+  char tmp_path[1024] = {0};
+  unsigned char *buf = NULL;
+  int fd = -1;
+  int rc = -1;
+  struct stat output_st;
+  const size_t chunk_size = 4 * 1024 * 1024;
+
+  if(!plan || !plan->info.source_path[0] || plan->nested.image_size == 0) {
+    set_err(err, err_size, "bad prepared image plan");
+    errno = EINVAL;
+    return -1;
+  }
+  local_info = plan->info;
+  nested = plan->nested;
+  memset(&plan->nested, 0, sizeof(plan->nested));
+  virtual_reader_init(&vr);
+
+  if(stat(info->output_path, &output_st) == 0) {
+    set_err(err, err_size, "output exists");
+    errno = EEXIST;
+    goto done;
+  }
+  if(pfs_compress_temp_output_path(info->output_path, tmp_path,
+                                   sizeof(tmp_path)) != 0) {
+    set_err(err, err_size, "temporary output path too long");
+    goto done;
+  }
+  unlink(tmp_path);
+  fd = open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if(fd < 0) {
+    set_err(err, err_size, "open output: %s", strerror(errno));
+    goto done;
+  }
+  if(ftruncate(fd, (off_t)nested.image_size) != 0) {
+    set_err(err, err_size, "reserve output: %s", strerror(errno));
+    goto done;
+  }
+  buf = malloc(chunk_size);
+  if(!buf) {
+    set_err(err, err_size, "out of memory");
+    errno = ENOMEM;
+    goto done;
+  }
+
+  job_set_current("Writing image");
+  atomic_store(&g_job.total_bytes,
+               nested.image_size > (uint64_t)LONG_MAX ? LONG_MAX :
+               (long)nested.image_size);
+  atomic_store(&g_job.copied_bytes, 0);
+  for(uint64_t offset = 0; offset < nested.image_size;) {
+    size_t n = nested.image_size - offset > (uint64_t)chunk_size
+        ? chunk_size : (size_t)(nested.image_size - offset);
+    if(job_cancelled()) {
+      set_err(err, err_size, "cancelled");
+      errno = EINTR;
+      goto done;
+    }
+    if(virtual_reader_read(&nested, &vr, offset, buf, n, err, err_size) != 0) {
+      goto done;
+    }
+    if(pwrite_all_local(fd, buf, n, (off_t)offset) != 0) {
+      set_err(err, err_size, "write image: %s", strerror(errno));
+      goto done;
+    }
+    offset += n;
+    atomic_store(&g_job.copied_bytes,
+                 offset > (uint64_t)LONG_MAX ? LONG_MAX : (long)offset);
+  }
+
+  job_set_current("Finalizing image");
+  if(sync_completed_output_file(fd, err, err_size) != 0) goto done;
+  if(close(fd) != 0) {
+    set_err(err, err_size, "close output: %s", strerror(errno));
+    fd = -1;
+    goto done;
+  }
+  fd = -1;
+  if(rename(tmp_path, info->output_path) != 0) {
+    set_err(err, err_size, "rename output: %s", strerror(errno));
+    goto done;
+  }
+  destructive_stream_fsync_parent_best_effort(info->output_path);
+  info->nested_size = nested.image_size;
+  info->stored_size = nested.image_size;
+  info->output_exists = 1;
+  rc = 0;
+
+done:
+  if(fd >= 0) close(fd);
+  if(rc != 0 && tmp_path[0]) unlink(tmp_path);
+  free(buf);
+  virtual_reader_free(&vr);
+  layout_free(&nested);
+  if(info_out) *info_out = *info;
+  return rc;
+}
+
 void
 pfs_compress_plan_free(pfs_compress_plan_t *plan) {
   if(!plan) return;
