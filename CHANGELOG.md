@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.0.1 - 2026-06-18
+
+Compared `new_release_items` against `v1.0.0`.
+
+Full release notes: [RELEASE_NOTES_1.0.1.md](RELEASE_NOTES_1.0.1.md).
+
+### Added
+
+- Added `Make Image` for APR Emu workflows. Game Compressor can create direct
+  `.exfat` or `.ffpfs` images from folder games so APR Emu titles can run from
+  internal SSD.
+- For image creation, Game Compressor automatically builds or refreshes
+  `ampr_emu.index` when needed and automatically applies the ShadowMountPlus
+  read-only image setting for the created image.
+- Added `Set Read Only` for existing image entries. Game Compressor writes the
+  ShadowMountPlus read-only image hint and requests a rescan for the selected
+  image.
+
+### Changed
+
+- `.exfat` is the recommended and faster image type for APR Emu internal-SSD
+  image workflows.
+- Improved ShadowMountPlus source discovery by respecting configured `scanpath`,
+  `scan_depth`, `recursive_scan`, and manual-list entries.
+- Improved uncompress and decompression destination handling for image and
+  folder outputs.
+- Simplified compression choices by removing the old Fast/miniz profile path and
+  the temporary raw-only user flow.
+- Consolidated move and copy actions into target pickers for internal and
+  external storage.
+
+### Fixed
+
+- Improved output-exists errors and UI failure notices.
+
 ## 1.0.0 - 2026-06-17
 
 Compared local `AMPRSupport` against `v0.9.9`.
