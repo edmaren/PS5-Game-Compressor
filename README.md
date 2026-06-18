@@ -33,10 +33,33 @@ the tile later.
 
 ## APR Emu Support
 
-For titles that use APR Emu, Game Compressor handles the APR index during the
-pre-compress scan. It rebuilds `ampr_emu.index` on the PS5 and includes that
-generated index in the compressed output, so users do not need to run the manual
-`build_ampr_index.py` script before compression.
+APR Emu titles need an `ampr_emu.index` file and the correct ShadowMountPlus
+read-only image settings when they are run from internal SSD. Game Compressor
+handles those details for the common workflows:
+
+- To compress a folder-format APR Emu game from USB and run it from internal
+  SSD, plug in the USB drive, select the title, and choose `Compress`. Game
+  Compressor builds `ampr_emu.index` using the same workflow as
+  `build_ampr_index.py`, writes the ShadowMountPlus read-only and sector-size
+  settings, creates the `.ffpfsc` image, mounts it, and validates the mounted
+  image byte-for-byte against the original.
+- If the compressed game stutters and you still want it on internal SSD, open
+  the secondary action menu, choose `Uncompress`, then select `exFAT`. The
+  ShadowMountPlus settings and `ampr_emu.index` are already in place, so Game
+  Compressor leaves them unchanged and creates an uncompressed exFAT image.
+- If you already know the game should stay uncompressed, open the secondary
+  action menu, choose `Make Image`, then select `exFAT` and `Internal SSD`.
+  Game Compressor detects the APR Emu title, builds or refreshes
+  `ampr_emu.index`, applies the read-only ShadowMountPlus settings, and creates
+  the uncompressed image.
+- If you already have an exFAT image and `ampr_emu.index` exists, use `Set Read
+  Only` from the secondary action menu to apply the ShadowMountPlus read-only
+  settings for that image.
+
+The only unsupported automatic case is an existing exFAT image with no
+`ampr_emu.index`. For that case, run the game once from external USB without
+read-only settings so APR Emu can create its index, confirm the game starts,
+then copy it to internal SSD and use `Set Read Only`.
 
 Non-APR titles keep the normal compression path. When APR indexing is performed,
 the selected game screen and operation history show `APR indexed`.
