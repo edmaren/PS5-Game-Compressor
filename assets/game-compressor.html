@@ -1787,6 +1787,13 @@
       border-bottom-color: rgba(245, 245, 240, .12);
     }
 
+    body.theme-dark #ampr-version-modal .modal-actions {
+      border-top-color: rgba(245, 245, 240, .12);
+      background: rgba(24, 27, 27, .96);
+      box-shadow: 0 -12px 28px rgba(0, 0, 0, .34),
+        inset 0 1px 0 rgba(255, 255, 255, .04);
+    }
+
     body.theme-dark .about-copy {
       border-color: rgba(245, 245, 240, .13);
       background: rgba(31, 34, 34, .96);
@@ -3336,6 +3343,20 @@
       const rawName = String((file && file.name) || 'libSceAmpr.sprx');
       const name = rawName.replace(/[^A-Za-z0-9._ -]+/g, '_').slice(0, 120) || 'libSceAmpr.sprx';
       return 'custom-upload:' + name;
+    }
+
+    function isPs5Browser() {
+      const nav = typeof navigator !== 'undefined' ? navigator : {};
+      const ua = String(nav.userAgent || '');
+      const platform = String(nav.platform || '');
+      return /PlayStation 5/i.test(ua) || /PlayStation 5/i.test(platform);
+    }
+
+    function showPs5CustomAmprUploadMessage() {
+      const message = 'Upload custom libSceAmpr from your computer. Not supported on PS5 browser.';
+      const status = $('ampr-version-status');
+      if (status) status.textContent = message;
+      alert(message);
     }
 
     async function cacheCustomAmprFile(file) {
@@ -5493,9 +5514,13 @@
     function validationJobUsesPhaseEta(job) {
       const action = String((job && job.verb) || '').toLowerCase();
       const phase = String((job && job.phase) || '').toLowerCase();
+      const current = String((job && job.current) || '').toLowerCase();
       const count = Number((job && job.phaseCount) || 0);
-      return (action === 'validate-repair' || action === 'validate-only') &&
-        count > 0 &&
+      const validationAction =
+        action === 'validate-repair' ||
+        action === 'validate-only' ||
+        (action === 'compress' && current.indexOf('scanning mounted') !== -1);
+      return validationAction && count > 0 &&
         (phase === 'scanning' || phase === 'validating' ||
           phase === 'repairing' || phase === 'copying' ||
           phase === 'metadata');
@@ -7466,6 +7491,10 @@
       $('ampr-version-apply').addEventListener('click', applySelectedAmprVersion);
       $('ampr-custom-upload').addEventListener('click', () => {
         if (state.amprPickerBusy || state.amprPickerLoading || jobIsBusy()) return;
+        if (isPs5Browser()) {
+          showPs5CustomAmprUploadMessage();
+          return;
+        }
         $('ampr-custom-file').click();
       });
       $('ampr-custom-file').addEventListener('change', (event) => {
