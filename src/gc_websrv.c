@@ -297,6 +297,7 @@ dispatch_request(const http_request_t *req) {
 	       !strcmp(req->path, "/api/gc/delete-game-data") ||
 	       !strcmp(req->path, "/api/gc/read-speed-test") ||
 	       !strcmp(req->path, "/api/gc/build-ampr-index") ||
+	       !strcmp(req->path, "/api/gc/ui-settings") ||
 	       !strcmp(req->path, "/api/gc/ampr/upload") ||
 	       !strcmp(req->path, "/api/gc/update-ampr") ||
 	       !strcmp(req->path, "/api/gc/restore-ampr-original")) {

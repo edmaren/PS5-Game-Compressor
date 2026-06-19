@@ -41,6 +41,7 @@
 #define GC_HISTORY_LOG GC_HISTORY_DIR "/history.jsonl"
 #define GC_MOUNT_SWITCH_LOG GC_BASE "/mount-switch-recovery.jsonl"
 #define GC_REPAIR_DIR GC_LOG_DIR "/repair"
+#define GC_UI_SETTINGS_FILE GC_BASE "/ui-settings.json"
 #define GC_AMPR_DIR GC_BASE "/ampr-emu"
 #define GC_AMPR_BINARY_NAME "libSceAmpr.sprx"
 #define GC_AMPR_LATEST_FILE GC_AMPR_DIR "/latest.json"
@@ -9111,6 +9112,109 @@ run_delete_game_data_op(gc_operation_t *op) {
   return 0;
 }
 
+static const char *
+ui_theme_normalize(const char *theme) {
+  return theme && !strcasecmp(theme, "dark") ? "dark" : "light";
+}
+
+static int
+ui_settings_theme_read(char *out, size_t out_size) {
+  char *json = NULL;
+  size_t json_size = 0;
+  char theme[16] = {0};
+  const char *normalized;
+
+  if(!out || out_size == 0) return -1;
+  snprintf(out, out_size, "%s", "light");
+  if(read_file_limited(GC_UI_SETTINGS_FILE, &json, &json_size,
+                       64 * 1024) != 0) {
+    return 0;
+  }
+  (void)json_size;
+  json_find_string_value(json, "theme", theme, sizeof(theme));
+  normalized = ui_theme_normalize(theme);
+  snprintf(out, out_size, "%s", normalized);
+  free(json);
+  return 0;
+}
+
+static int
+ui_settings_theme_write(const char *theme) {
+  char tmp[1024];
+  const char *normalized = ui_theme_normalize(theme);
+  json_buf_t b = {0};
+  int fd;
+  int n;
+
+  if(mkdirs(GC_BASE) != 0) return -1;
+  n = snprintf(tmp, sizeof(tmp), "%s/.ui-settings.json.tmp", GC_BASE);
+  if(n < 0 || (size_t)n >= sizeof(tmp)) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  if(json_append(&b, "{\"theme\":") != 0 ||
+     json_string(&b, normalized) != 0 ||
+     json_appendf(&b, ",\"updatedAt\":%ld}\n", (long)time(NULL)) != 0) {
+    free(b.data);
+    errno = ENOMEM;
+    return -1;
+  }
+  fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if(fd < 0) {
+    free(b.data);
+    return -1;
+  }
+  if(write_all_fd(fd, b.data, b.len) != 0 || fsync(fd) != 0) {
+    int saved_errno = errno;
+    close(fd);
+    unlink(tmp);
+    free(b.data);
+    errno = saved_errno;
+    return -1;
+  }
+  close(fd);
+  free(b.data);
+  if(rename(tmp, GC_UI_SETTINGS_FILE) != 0) {
+    int saved_errno = errno;
+    unlink(tmp);
+    errno = saved_errno;
+    return -1;
+  }
+  fsync_parent_dir_best_effort(GC_BASE);
+  return 0;
+}
+
+static int
+ui_settings_request(const http_request_t *req) {
+  char theme[16] = {0};
+  json_buf_t b = {0};
+
+  if(!strcmp(req->method, "POST")) {
+    if(!websrv_get_query_arg(req, "theme", theme, sizeof(theme))) {
+      return serve_error(req, 400, "theme required");
+    }
+    if(strcasecmp(theme, "light") && strcasecmp(theme, "dark")) {
+      return serve_error(req, 400, "bad theme");
+    }
+    if(ui_settings_theme_write(theme) != 0) {
+      return serve_error(req, 500, "save UI settings failed");
+    }
+  } else if(strcmp(req->method, "GET")) {
+    return serve_error(req, 405, "method not allowed");
+  }
+
+  if(ui_settings_theme_read(theme, sizeof(theme)) != 0) {
+    snprintf(theme, sizeof(theme), "%s", "light");
+  }
+  if(json_append(&b, "{\"ok\":true,\"theme\":") != 0 ||
+     json_string(&b, ui_theme_normalize(theme)) != 0 ||
+     json_append(&b, "}") != 0) {
+    free(b.data);
+    return serve_error(req, 500, "out of memory");
+  }
+  return serve_owned(req, 200, b.data, b.len);
+}
+
 static int
 ampr_versions_request(const http_request_t *req) {
   DIR *d = opendir(GC_AMPR_DIR);
@@ -11908,6 +12012,7 @@ gc_api_request(const http_request_t *req, const char *url) {
     return uncompress_plan_request(req);
   }
   if(!strcmp(req->path, "/api/gc/history")) return history_request(req);
+  if(!strcmp(req->path, "/api/gc/ui-settings")) return ui_settings_request(req);
   if(!strcmp(req->path, "/api/gc/ampr/versions")) return ampr_versions_request(req);
   if(!strcmp(req->path, "/api/gc/ampr/upload")) return ampr_upload_request(req);
   if(!strcmp(req->path, "/api/gc/job")) return job_request(req);
