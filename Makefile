@@ -57,7 +57,7 @@ FAST_OBJS := $(patsubst %.c,build/%.o,$(FAST_SRCS))
 PFSC_ENCODER ?= runtime
 PFSC_ZLIB_LEVEL ?= 7
 PFSC_THRESHOLD_GAIN ?= 5
-PFSC_FORCE_RAW_EXEC ?= 0
+PFSC_FORCE_RAW_EXEC ?= 1
 ZLIB_INCLUDE ?= /Users/jumasayeh/Developer/etaHEN/Source\ Code/include
 ZLIB_LIB ?= /Users/jumasayeh/Developer/etaHEN/Source\ Code/lib/libz.a
 
