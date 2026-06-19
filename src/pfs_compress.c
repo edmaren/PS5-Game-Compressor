@@ -3541,6 +3541,46 @@ scan_file_cmp(const void *a, const void *b) {
 }
 
 static int
+scan_rel_is_tail_payload(const char *rel) {
+  if(!rel || !rel[0]) return 0;
+  if(starts_with_ci(rel, "fakelib/")) return 1;
+  if(starts_with_ci(rel, "sce_module/")) return 1;
+  if(!strchr(rel, '/')) {
+    if(!strcasecmp(rel, "ampr_emu.index")) return 1;
+    if(!strcasecmp(rel, "eboot.bin") || !strcasecmp(rel, "iboot.bin")) {
+      return 1;
+    }
+    if(ends_with_ci(rel, ".prx") || ends_with_ci(rel, ".sprx")) return 1;
+  }
+  return 0;
+}
+
+static int
+scan_move_tail_payload_files_to_tail(scan_list_t *scans) {
+  int moved = 0;
+  if(!scans || scans->count < 2) return 0;
+  scan_file_t *tmp = malloc(scans->count * sizeof(*tmp));
+  if(!tmp) return 0;
+  size_t out = 0;
+  for(size_t i = 0; i < scans->count; i++) {
+    if(!scan_rel_is_tail_payload(scans->items[i].rel)) {
+      tmp[out++] = scans->items[i];
+    }
+  }
+  for(size_t i = 0; i < scans->count; i++) {
+    if(scan_rel_is_tail_payload(scans->items[i].rel)) {
+      moved++;
+      tmp[out++] = scans->items[i];
+    }
+  }
+  if(out == scans->count) {
+    memcpy(scans->items, tmp, scans->count * sizeof(*tmp));
+  }
+  free(tmp);
+  return moved;
+}
+
+static int
 stream_ext_matches(const char *rel, const char *ext) {
   size_t rel_len = strlen(rel ? rel : "");
   size_t ext_len = strlen(ext ? ext : "");
@@ -4429,6 +4469,10 @@ build_layout_from_files(const char *root, pfs_layout_t *l,
     goto done;
   }
   qsort(scans.items, scans.count, sizeof(scans.items[0]), scan_file_cmp);
+  int tail_payloads = scan_move_tail_payload_files_to_tail(&scans);
+  if(info && tail_payloads > 0) {
+    info->ampr_hot_swap_optimized = 1;
+  }
   rc = build_pfs_layout_from_scans(&scans, l, err, err_size);
 
 done:
@@ -4473,6 +4517,10 @@ build_layout_from_files_stream(const char *root, pfs_layout_t *l,
     info->stream_reserve_bytes = normalized.reserve_bytes;
     info->stream_forward_files = forward_files;
     info->stream_reverse_files = reverse_files;
+  }
+  int tail_payloads = scan_move_tail_payload_files_to_tail(&scans);
+  if(info && tail_payloads > 0) {
+    info->ampr_hot_swap_optimized = 1;
   }
   rc = build_pfs_layout_from_scans(&scans, l, err, err_size);
 
@@ -5048,6 +5096,10 @@ build_exfat_layout_from_files(const char *root, const char *title_id,
     goto done;
   }
   qsort(scans.items, scans.count, sizeof(scans.items[0]), scan_file_cmp);
+  int tail_payloads = scan_move_tail_payload_files_to_tail(&scans);
+  if(info && tail_payloads > 0) {
+    info->ampr_hot_swap_optimized = 1;
+  }
   rc = build_exfat_layout_from_scans(&scans, title_id, l, err, err_size);
 
 done:
@@ -5093,6 +5145,10 @@ build_exfat_layout_from_files_stream(const char *root, const char *title_id,
     info->stream_reserve_bytes = normalized.reserve_bytes;
     info->stream_forward_files = forward_files;
     info->stream_reverse_files = reverse_files;
+  }
+  int tail_payloads = scan_move_tail_payload_files_to_tail(&scans);
+  if(info && tail_payloads > 0) {
+    info->ampr_hot_swap_optimized = 1;
   }
   rc = build_exfat_layout_from_scans(&scans, title_id, l, err, err_size);
 
