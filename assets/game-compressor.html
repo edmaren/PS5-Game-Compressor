@@ -1723,19 +1723,6 @@
       text-align: center;
     }
 
-    .about-product {
-      font-size: 22px;
-      line-height: 1.18;
-      font-weight: 800;
-    }
-
-    .about-version {
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.3;
-      font-weight: 700;
-    }
-
     .about-main {
       font-size: 19px;
       line-height: 1.25;
@@ -1801,14 +1788,6 @@
 
     body.theme-dark .about-main {
       color: #f6f4ef;
-    }
-
-    body.theme-dark .about-product {
-      color: #f6f4ef;
-    }
-
-    body.theme-dark .about-version {
-      color: #b9b6ae;
     }
 
     body.theme-dark .about-sub {
@@ -2487,13 +2466,11 @@
   <div class="modal-backdrop hidden" id="info-modal">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="info-title">
       <div class="modal-head">
-        <div class="modal-title" id="info-title">About Game Compressor</div>
+        <div class="modal-title" id="info-title">Game Compressor</div>
         <button class="icon-btn" id="info-close" aria-label="Close"></button>
       </div>
       <div class="modal-body">
         <div class="about-copy">
-          <div class="about-product" id="about-app-name">Game Compressor</div>
-          <div class="about-version" id="about-version"></div>
           <div class="about-main">Built by Juma Sayeh</div>
           <div class="about-sub">Tested by Osama Abualia</div>
           <div class="about-made">Made with <span class="about-image-icon about-heart" role="img"
@@ -2967,14 +2944,10 @@
       const version = appVersionText();
       const sidebarName = $('sidebar-app-name');
       const sidebarVersion = $('sidebar-version');
-      const aboutName = $('about-app-name');
-      const aboutVersion = $('about-version');
       const infoTitle = $('info-title');
       if (sidebarName) sidebarName.textContent = name;
       if (sidebarVersion) sidebarVersion.textContent = version;
-      if (aboutName) aboutName.textContent = name;
-      if (aboutVersion) aboutVersion.textContent = version ? 'Version ' + version : '';
-      if (infoTitle) infoTitle.textContent = 'About ' + name;
+      if (infoTitle) infoTitle.textContent = version ? name + ' ' + version : name;
     }
 
     async function loadAppStatus() {
