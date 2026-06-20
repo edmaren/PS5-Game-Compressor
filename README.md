@@ -160,6 +160,46 @@ the UI returns to that title when it is still available.
 If you close the browser window during an operation, open the Game Compressor
 tile again or go back to `http://<PS5_IP>:5910/` to see the current job.
 
+## Compression Settings
+
+When you choose `Compress`, Game Compressor asks for the output format,
+destination, and how to handle the original source.
+
+### Format
+
+- `exFAT` is the default and recommended format. It creates an exFAT-backed
+  compressed image and is the preferred option for most games, especially APR
+  Emu workflows.
+- `PFS Experimental` creates a PFS-backed compressed image. Use it only when you
+  specifically want to test the PFS image path.
+
+### Destination
+
+- `Compress in place` writes the compressed `.ffpfsc` next to the currently
+  selected game.
+- `Internal SSD` writes the compressed output under `/data/homebrew`. This is
+  only shown when the selected game is not already on internal storage.
+- `External Storage` writes the compressed output to a selected USB/external
+  target. If the game is already on external storage, Game Compressor may show a
+  `Compress to...` picker so you can choose internal SSD or another USB target.
+
+### Original Handling
+
+- `Keep original` leaves the source folder or image untouched. This is the
+  safest choice and requires enough free space for the compressed output.
+- `Delete after verified` writes and validates the compressed output first, then
+  removes the original source. This is the default for in-place compression. It
+  still needs full-size temporary free space because the original is kept until
+  verification succeeds.
+- `Destructive` deletes source data while writing the compressed output. It uses
+  less free space, but it cannot be cancelled after the unsafe phase begins and
+  is only available for same-storage folder compression. It is not available
+  when compressing to another drive or when using `Make Image`.
+
+When compressing to internal SSD or external storage, Game Compressor keeps the
+original by default. If you choose to remove the original, it uses the safer
+`Delete after verified` behavior.
+
 ## Game Discovery
 
 Mounted games are shown automatically. Game Compressor also scans known game
