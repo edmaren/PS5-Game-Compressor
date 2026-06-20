@@ -5,6 +5,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Game Compressor</title>
+  <script>
+    (function () {
+      var match = document.cookie.match(/(?:^|;\s*)game_compressor_theme=([^;]*)/);
+      var theme = '';
+      try {
+        theme = match ? decodeURIComponent(match[1]) : '';
+      } catch (err) {
+        theme = '';
+      }
+      theme = theme === 'dark' ? 'dark' : 'light';
+      window.__gcInitialTheme = theme;
+      document.documentElement.classList.add(theme === 'dark' ? 'theme-dark' : 'theme-light');
+    })();
+  </script>
   <style>
     :root {
       --bg: #f6f8fc;
@@ -37,6 +51,7 @@
       --thumb-bg: linear-gradient(145deg, #eef4ff, #dce8fb);
     }
 
+    html.theme-dark,
     body.theme-dark {
       --bg: #101313;
       --surface: rgba(25, 28, 28, .96);
@@ -2409,6 +2424,12 @@
 </head>
 
 <body>
+  <script>
+    (function () {
+      var dark = document.documentElement.classList.contains('theme-dark');
+      document.body.classList.add(dark ? 'theme-dark' : 'theme-light');
+    })();
+  </script>
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar-head">
@@ -2708,6 +2729,7 @@
   </div>
 
   <script>
+    const THEME_COOKIE = 'game_compressor_theme';
     const SELECTED_GAME_COOKIE = 'game_compressor_selected_title';
     const PFS_BLOCK_SIZE = 64 * 1024;
     const SPEED_SAMPLE_WINDOW_MS = 8 * 1000;
@@ -2725,8 +2747,8 @@
       history: [],
       usb: [],
       job: null,
-      theme: 'light',
-      savedTheme: 'light',
+      theme: window.__gcInitialTheme === 'dark' ? 'dark' : 'light',
+      savedTheme: window.__gcInitialTheme === 'dark' ? 'dark' : 'light',
       themeSaving: false,
       speed: {
         activeId: '',
@@ -2983,8 +3005,11 @@
     function applyTheme(theme) {
       const normalized = normalizeTheme(theme);
       state.theme = normalized;
+      document.documentElement.classList.toggle('theme-dark', normalized === 'dark');
+      document.documentElement.classList.toggle('theme-light', normalized !== 'dark');
       document.body.classList.toggle('theme-dark', normalized === 'dark');
       document.body.classList.toggle('theme-light', normalized !== 'dark');
+      writeCookie(THEME_COOKIE, normalized, 365);
       const light = $('theme-light');
       const dark = $('theme-dark');
       if (light) {
