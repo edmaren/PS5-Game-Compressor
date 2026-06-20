@@ -195,10 +195,10 @@ container:
   removes the original source. This is the default for in-place compression. It
   still needs full-size temporary free space because the original is kept until
   verification succeeds.
-- `Destructive` deletes source data while writing the compressed output. It uses
-  less free space, but it cannot be cancelled after the unsafe phase begins and
-  is only available for same-storage folder compression. It is not available
-  when compressing to another drive or when using `Make Image`.
+- `Destructive` deletes source data while writing the compressed output. It
+  requires at least 1 GB of free space, cannot be cancelled after the unsafe
+  phase begins, and is only available for same-storage folder compression. It is
+  not available when compressing to another drive or when using `Make Image`.
 
 When compressing to internal SSD or external storage, Game Compressor keeps the
 original by default. If you choose to remove the original, it uses the safer
