@@ -64,16 +64,18 @@ then copy it to internal SSD and use `Set Read Only`.
 Non-APR titles keep the normal compression path. When APR indexing is performed,
 the selected game screen and operation history show `APR indexed`.
 
-The in-app `APR-EMU Version` picker reads available APR-EMU binaries from:
+The in-app `APR-EMU Version` picker uses Pippo's public APR-EMU manifest and
+binary mirror:
 
 ```text
 https://pippo26442999.github.io/.exFAT/ampr-emu-drakmor/manifest.json
 ```
 
-Manifest entries are downloaded by the browser, uploaded to Game Compressor,
-cached under `/data/GameCompressor/ampr-emu`, and then applied to the selected
-title or image. Custom `.sprx`/`.prx` files can also be uploaded manually from a
-desktop browser. The upstream APR Emu project source is
+The manifest and hosted files are provided by Pippo (`pippo26442999`). Manifest
+entries are downloaded by the browser, uploaded to Game Compressor, cached under
+`/data/GameCompressor/ampr-emu`, and then applied to the selected title or
+image. Custom `.sprx`/`.prx` files can also be uploaded manually from a desktop
+browser. The upstream APR Emu project source is
 [drakmor/ampr_emu](https://github.com/drakmor/ampr_emu).
 
 ## Requirements
@@ -199,6 +201,9 @@ telling you to exit the browser window.
 Created by Juma Sayeh.
 
 Tested by Osama Abualia.
+
+Thanks to Pippo (`pippo26442999`) for maintaining the public APR-EMU manifest
+and binary mirror used by the in-app APR-EMU version picker.
 
 Built on and inspired by work from:
 
