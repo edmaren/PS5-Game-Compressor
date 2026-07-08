@@ -181,7 +181,7 @@ container:
 
 - `Compress in place` writes the compressed `.ffpfsc` container next to the
   currently selected game.
-- `Internal SSD` writes the compressed output under `/data/homebrew`. This is
+- `Internal SSD` writes the compressed output under `/data`. This is
   only shown when the selected game is not already on internal storage.
 - `External Storage` writes the compressed output to a selected USB/external
   target. If the game is already on external storage, Game Compressor may show a
@@ -210,16 +210,13 @@ Mounted games are shown automatically. Game Compressor also scans known game
 storage folders, including:
 
 ```text
-/data/homebrew
+/data
 /data/etaHEN/games
 /mnt/ext0
-/mnt/ext0/homebrew
 /mnt/ext0/etaHEN/games
 /mnt/ext1
-/mnt/ext1/homebrew
 /mnt/ext1/etaHEN/games
 /mnt/usb0 through /mnt/usb7
-/mnt/usb0/homebrew through /mnt/usb7/homebrew
 /mnt/usb0/etaHEN/games through /mnt/usb7/etaHEN/games
 ```
 

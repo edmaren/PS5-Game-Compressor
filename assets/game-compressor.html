@@ -2668,7 +2668,7 @@
           <button class="format-row" type="button" data-compress-destination="internal">
             <div>
               <div class="history-title" id="format-destination-internal-title">Internal SSD</div>
-              <div class="history-meta" id="format-destination-internal">Write compressed file to /data/homebrew</div>
+              <div class="history-meta" id="format-destination-internal">Write compressed file to /data</div>
             </div>
             <span class="chip">Select</span>
           </button>
@@ -2748,7 +2748,7 @@
           <button class="format-row" type="button" data-uncompress-destination="internal" id="uncompress-internal-row">
             <div>
               <div class="history-title">Internal SSD</div>
-              <div class="history-meta">Write to /data/homebrew</div>
+              <div class="history-meta">Write to /data</div>
             </div>
             <span class="chip">Select</span>
           </button>
@@ -5093,7 +5093,7 @@
         '&deletePolicy=' + encodeURIComponent(op.deletePolicy === 'keep' ? 'keep' : 'after') +
         '&skipSpaceCheck=1';
       const targetRoot = String(op.targetRoot || '');
-      if (targetRoot === '/data/homebrew') {
+      if (targetRoot === '/data') {
         url += '&destination=internal';
       } else if (targetRoot) {
         const usbId = await storageTargetIdForRoot(targetRoot);
@@ -6600,7 +6600,7 @@
     function moveTargetInternalRowHtml() {
       return '<button class="usb-row" data-target="internal">' +
         '<div><div class="history-title">Internal SSD</div>' +
-        '<div class="history-meta">/data/homebrew</div></div>' +
+        '<div class="history-meta">/data</div></div>' +
         '<span class="chip">Select</span>' +
         '</button>';
     }
@@ -6735,7 +6735,7 @@
       picker.innerHTML =
         compressDestinationChoiceHtml(
           'Internal SSD',
-          '/data/homebrew',
+          '/data',
           '',
           internalSelected,
           'data-compress-destination-choice',
@@ -7218,8 +7218,8 @@
 	      $('format-destination-internal').textContent = useDestinationChooser
           ? 'Choose Internal SSD or another USB'
           : (makeImage
-	          ? 'Write image to /data/homebrew'
-	          : 'Write compressed file to /data/homebrew');
+	          ? 'Write image to /data'
+	          : 'Write compressed file to /data');
       $('format-destination-usb-title').textContent = makeImage
         ? 'Make image to external storage'
         : 'External Storage';

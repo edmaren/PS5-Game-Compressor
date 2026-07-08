@@ -220,7 +220,7 @@ Full release notes: [RELEASE_NOTES_0.9.9.md](RELEASE_NOTES_0.9.9.md).
 ### Changed
 
 - Move/copy target roots now prefer existing game parent folders on the selected
-  storage, such as `/homebrew` or `/etaHEN/games`, before falling back to the
+  storage, such as `/etaHEN/games`, before falling back to the
   default target root.
 - New repair journals now explicitly zero their state area before use.
 - The payload names its main thread as `game-compressor.elf` for easier

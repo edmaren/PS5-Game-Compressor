@@ -19,7 +19,7 @@ Compared against `v0.9.7`.
 - Improved free-space probing by falling back to mounted storage roots when an
   output folder does not exist yet.
 - Improved move/copy destination selection so existing storage layouts such as
-  `/homebrew` and `/etaHEN/games` are preferred.
+  `/etaHEN/games` are preferred.
 - Hardened PFSC repair journal resume behavior by discarding journals with bad
   or mismatched counters.
 - Improved game title detection for localized `param.json` metadata.

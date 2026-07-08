@@ -69,7 +69,7 @@
 #define GC_SHADOW_IMAGE_BASE "/mnt/shadowmnt"
 #define GC_SHADOW_CONFIG_FILE "/data/shadowmount/config.ini"
 #define GC_SHADOW_MANUAL_LIST_FILE "/data/shadowmount/manual.lst"
-#define GC_INTERNAL_GAME_ROOT "/data/homebrew"
+#define GC_INTERNAL_GAME_ROOT "/data"
 #define GC_USB_COUNT 8
 #define GC_STORAGE_TARGET_COUNT (GC_USB_COUNT + 2)
 #define GC_STORAGE_TARGET_MIN_TOTAL_BYTES (64ULL * 1024ULL * 1024ULL)
@@ -312,16 +312,16 @@ extern int sceSystemServiceGetAppTitleId(int app_id, char *title_id);
 extern uint32_t sceLncUtilKillApp(uint32_t app_id);
 
 static const gc_storage_target_def_t GC_STORAGE_TARGETS[GC_STORAGE_TARGET_COUNT] = {
-  { "ext0", "External SSD", "/mnt/ext0", "/mnt/ext0/homebrew" },
-  { "ext1", "M.2 SSD", "/mnt/ext1", "/mnt/ext1/homebrew" },
-  { "usb0", "USB 0", "/mnt/usb0", "/mnt/usb0/homebrew" },
-  { "usb1", "USB 1", "/mnt/usb1", "/mnt/usb1/homebrew" },
-  { "usb2", "USB 2", "/mnt/usb2", "/mnt/usb2/homebrew" },
-  { "usb3", "USB 3", "/mnt/usb3", "/mnt/usb3/homebrew" },
-  { "usb4", "USB 4", "/mnt/usb4", "/mnt/usb4/homebrew" },
-  { "usb5", "USB 5", "/mnt/usb5", "/mnt/usb5/homebrew" },
-  { "usb6", "USB 6", "/mnt/usb6", "/mnt/usb6/homebrew" },
-  { "usb7", "USB 7", "/mnt/usb7", "/mnt/usb7/homebrew" },
+  { "ext0", "External SSD", "/mnt/ext0" },
+  { "ext1", "M.2 SSD", "/mnt/ext1" },
+  { "usb0", "USB 0", "/mnt/usb0" },
+  { "usb1", "USB 1", "/mnt/usb1" },
+  { "usb2", "USB 2", "/mnt/usb2" },
+  { "usb3", "USB 3", "/mnt/usb3" },
+  { "usb4", "USB 4", "/mnt/usb4" },
+  { "usb5", "USB 5", "/mnt/usb5" },
+  { "usb6", "USB 6", "/mnt/usb6" },
+  { "usb7", "USB 7", "/mnt/usb7" },
 };
 
 static void fsync_parent_dir_best_effort(const char *path);
@@ -1061,37 +1061,27 @@ typedef struct gc_source_roots {
 } gc_source_roots_t;
 
 static const char *const GC_SHADOW_DEFAULT_SOURCE_ROOTS[] = {
-  "/data/homebrew",
+  "/data",
   "/data/etaHEN/games",
   "/mnt/ext0",
-  "/mnt/ext0/homebrew",
   "/mnt/ext0/etaHEN/games",
   "/mnt/ext1",
-  "/mnt/ext1/homebrew",
   "/mnt/ext1/etaHEN/games",
   "/mnt/usb0",
-  "/mnt/usb0/homebrew",
   "/mnt/usb0/etaHEN/games",
   "/mnt/usb1",
-  "/mnt/usb1/homebrew",
   "/mnt/usb1/etaHEN/games",
   "/mnt/usb2",
-  "/mnt/usb2/homebrew",
   "/mnt/usb2/etaHEN/games",
   "/mnt/usb3",
-  "/mnt/usb3/homebrew",
   "/mnt/usb3/etaHEN/games",
   "/mnt/usb4",
-  "/mnt/usb4/homebrew",
   "/mnt/usb4/etaHEN/games",
   "/mnt/usb5",
-  "/mnt/usb5/homebrew",
   "/mnt/usb5/etaHEN/games",
   "/mnt/usb6",
-  "/mnt/usb6/homebrew",
   "/mnt/usb6/etaHEN/games",
   "/mnt/usb7",
-  "/mnt/usb7/homebrew",
   "/mnt/usb7/etaHEN/games",
   NULL,
 };
@@ -3774,12 +3764,11 @@ discover_games(gc_game_t *games, size_t max_games, size_t *count_out,
 
 static int
 preferred_transfer_root_score(const char *parent, const char *storage_root) {
-  if(!parent || !parent[0] || !storage_root || !storage_root[0]) return 1000;
-  if(!path_is_shadowmount_game_root(parent)) return 1000;
-  if(ends_with_ci(parent, "/homebrew")) return 0;
-  if(ends_with_ci(parent, "/etaHEN/games")) return 10;
-  if(paths_equal_ignoring_trailing_slash(parent, storage_root)) return 30;
-  return 1000;
+  if(!parent || !parent[0] || !storage_root || !storage_root[0]) return 30;
+  if(!path_is_shadowmount_game_root(parent)) return 30;
+  if(ends_with_ci(parent, "/etaHEN/games")) return 0;
+  if(paths_equal_ignoring_trailing_slash(parent, storage_root)) return 10;
+  return 30;
 }
 
 static int
@@ -3789,7 +3778,7 @@ resolve_transfer_target_root(const char *storage_root,
                              size_t out_size) {
   gc_game_t *games;
   size_t count = 0;
-  int best_score = 1000;
+  int best_score = 30;
   char best[1024] = {0};
 
   if(!storage_root || !storage_root[0] || !fallback_root ||
@@ -3813,7 +3802,7 @@ resolve_transfer_target_root(const char *storage_root,
           continue;
         }
         score = preferred_transfer_root_score(parent, storage_root);
-        if(score >= 1000) continue;
+        if(score >= 30) continue;
         if(score < best_score) {
           best_score = score;
           snprintf(best, sizeof(best), "%s", parent);
@@ -10659,8 +10648,12 @@ enqueue_build_ampr_index_action(const http_request_t *req) {
   if(stat(source_path_arg, &st) != 0) {
     return serve_error(req, 400, "AMPR index source is unavailable");
   }
-  source_kind =
-      source_kind_from_name(source_kind_name_from_path(source_path_arg));
+  if(S_ISDIR(st.st_mode)) {
+    source_kind = GC_SOURCE_FOLDER;
+  } else {
+    source_kind =
+        source_kind_from_name(source_kind_name_from_path(source_path_arg));
+  }
   if(source_kind != GC_SOURCE_FOLDER &&
      source_kind != GC_SOURCE_IMAGE &&
      source_kind != GC_SOURCE_COMPRESSED) {
